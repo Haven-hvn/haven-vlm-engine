@@ -1,0 +1,14 @@
+type: vlm_model
+max_queue_size: null
+max_batch_size: 1
+instance_count: 1
+model_threshold: 0.5
+model_return_tags: true
+model_return_confidence: true
+model_category: ["nsfw"]
+model_version: "1.0"
+model_identifier: "vlm_nsfw_model"
+model_image_size: 512
+tag_list_path: "./models/nsfw_tags.txt"
+vlm_model_name: "HuggingFaceTB/SmolVLM-Instruct"
+use_quantization: true

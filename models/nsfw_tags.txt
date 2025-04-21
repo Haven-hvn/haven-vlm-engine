@@ -1,0 +1,13 @@
+nudity
+sexual_activity
+sexual_violence
+gore
+self_harm
+hate_symbols
+drugs
+alcohol
+smoking
+gambling
+profanity
+weapons
+violence

@@ -1,0 +1,14 @@
+inputs:
+  - frame
+  - tag_list
+output: vlm_scores
+short_name: vlm_pipeline
+version: 1.0
+
+models:
+  - name: vlm_frame_analyzer
+    inputs:
+      - frame
+      - tag_list
+    outputs:
+      - vlm_scores
