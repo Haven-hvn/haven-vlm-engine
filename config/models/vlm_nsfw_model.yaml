@@ -9,6 +9,7 @@ model_category: ["nsfw"]
 model_version: "1.0"
 model_identifier: "vlm_nsfw_model"
 model_image_size: 512
+model_info: base smolvlm model
 tag_list_path: "./models/nsfw_tags.txt"
 vlm_model_name: "HuggingFaceTB/SmolVLM-Instruct"
 use_quantization: true

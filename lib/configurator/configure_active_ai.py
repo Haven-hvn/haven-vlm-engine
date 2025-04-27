@@ -63,9 +63,8 @@ def open_ui(stdscr):
     available_ai_models = [model for model in available_ai_models if model['yaml_file_name'] not in active_ai_model_names]
 
     # Group and sort models by category and identifier
-    available_ai_models.sort(key=lambda x: (x['model_category'][0], int(x['model_identifier'])))
-    active_ai_models.sort(key=lambda x: (x['model_category'][0], int(x['model_identifier'])))
-
+    available_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
+    active_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
     # Determine the image size and categories of active models
     active_image_sizes = {model['model_image_size'] for model in active_ai_models}
     active_categories = {category for model in active_ai_models for category in model['model_category']}
@@ -120,8 +119,8 @@ def open_ui(stdscr):
                     if current_index >= len(available_ai_models):
                         current_index = len(available_ai_models) - 1
                     # Re-sort the lists
-                    available_ai_models.sort(key=lambda x: (x['model_category'][0], int(x['model_identifier'])))
-                    active_ai_models.sort(key=lambda x: (x['model_category'][0], int(x['model_identifier'])))
+                    available_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
+                    active_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
             elif current_list == 'active' and active_ai_models:
                 model = active_ai_models.pop(current_index)
                 available_ai_models.append(load_model_data(model['yaml_file_name']))
@@ -130,8 +129,8 @@ def open_ui(stdscr):
                 if current_index >= len(active_ai_models):
                     current_index = len(active_ai_models) - 1
                 # Re-sort the lists
-                available_ai_models.sort(key=lambda x: (x['model_category'][0], int(x['model_identifier'])))
-                active_ai_models.sort(key=lambda x: (x['model_category'][0], int(x['model_identifier'])))
+                available_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
+                active_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
         elif key == curses.KEY_LEFT:
             if current_list == 'active' and active_ai_models:
                 model = active_ai_models.pop(current_index)
@@ -141,8 +140,8 @@ def open_ui(stdscr):
                 if current_index >= len(active_ai_models):
                     current_index = len(active_ai_models) - 1
                 # Re-sort the lists
-                available_ai_models.sort(key=lambda x: (x['model_category'][0], int(x['model_identifier'])))
-                active_ai_models.sort(key=lambda x: (x['model_category'][0], int(x['model_identifier'])))
+                available_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
+                active_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
             elif current_list == 'available' and available_ai_models:
                 model = available_ai_models[current_index]
                 incompatible = any(size != model['model_image_size'] for size in active_image_sizes) or any(category in active_categories for category in model['model_category'])
