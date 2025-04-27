@@ -11,7 +11,7 @@ dependencies:
   - pyyaml
   - pip
   - pip:
-    - ./dist/ai_processing-0.0.0-cp312-cp312-linux_x86_64.whl  # [win]
+    - transformers
     - decord
     - fastapi==0.112.2
     - pycryptodomex==3.20.0
