@@ -4,11 +4,14 @@ import time
 from PIL import Image
 import numpy as np
 from lib.model.model import Model
+from lib.model.ai_model import AIModel
 from lib.model.vlm_model import VLMModel
 
-class VLMAIModel(Model):
+class VLMAIModel(AIModel):
     def __init__(self, configValues):
-        Model.__init__(self, configValues)
+        if "model_file_name" not in configValues:
+            configValues["model_file_name"] = configValues.get("vlm_model_name", "HuggingFaceTB/SmolVLM-Instruct")
+        super().__init__(configValues)
         self.max_model_batch_size = configValues.get("max_model_batch_size", 1)
         self.model_threshold = configValues.get("model_threshold", 0.5)
         self.model_return_tags = configValues.get("model_return_tags", True)
