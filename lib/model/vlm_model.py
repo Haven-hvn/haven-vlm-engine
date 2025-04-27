@@ -30,6 +30,7 @@ class VLMModel:
 
         # Processor handles resizing, normalization, chat‐template
         self.processor = AutoProcessor.from_pretrained(model_name)
+        self.model_name = model_name
         self.logger.info(f"VLM model initialized successfully")
 
     def _format_prompt(self, frame: Image.Image) -> str:
@@ -66,6 +67,7 @@ class VLMModel:
           3) parse tags + assign confidences
         """
         prompt = self._format_prompt(frame)
+        self.logger.debug(f"Prompting {self.model_name} with prompt : {prompt}")
         inputs = self.processor(
             text=prompt,
             images=[frame],
@@ -80,6 +82,7 @@ class VLMModel:
         raw_reply = self.processor.batch_decode(
             generated_ids, skip_special_tokens=True
         )[0]
+        self.logger.debug(f"Response received from {self.model_name} with response : {raw_reply}")
         return self._parse_simple_default(raw_reply)
 
     def _parse_simple_default(self, reply: str) -> dict[str, float]:
