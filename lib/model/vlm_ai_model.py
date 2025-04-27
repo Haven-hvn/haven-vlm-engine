@@ -19,7 +19,7 @@ class VLMAIModel(AIModel):
         self.device = configValues.get("device", None)
         self.model_category = configValues.get("model_category", None)
         self.model_version = configValues.get("model_version", "1.0")
-        self.model_identifier = configValues.get("model_identifier", "vlm_model")
+        self.model_identifier = configValues.get("model_identifier", None)
         self.tag_list_path = configValues.get("tag_list_path", None)
         self.vlm_model_name = configValues.get("vlm_model_name", "HuggingFaceTB/SmolVLM-Instruct")
         self.use_quantization = configValues.get("use_quantization", True)
