@@ -7,7 +7,7 @@ model_return_tags: true
 model_return_confidence: true
 model_category: ["nsfw"]
 model_version: "1.0"
-model_identifier: "vlm_nsfw_model"
+model_identifier: 93848
 model_image_size: 512
 model_info: base smolvlm model
 tag_list_path: "./models/nsfw_tags.txt"
