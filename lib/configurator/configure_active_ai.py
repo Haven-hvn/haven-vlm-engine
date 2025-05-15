@@ -22,7 +22,7 @@ def load_available_ai_models():
             yaml_path = os.path.join(ai_models_directory, file)
             with open(yaml_path, 'r') as f:
                 data = yaml.safe_load(f)
-            if data.get('type') == 'model' and data.get('model_category', None) is not None:
+            if data.get('type') in ['model', 'openai_vlm_client'] and data.get('model_category', None) is not None:
                 data['yaml_file_name'] = file.replace(".yaml", "")  # Use the file name itself
                 models.append(data)
     return models

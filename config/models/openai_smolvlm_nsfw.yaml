@@ -1,0 +1,19 @@
+type: openai_vlm_client
+model_category: ["nsfw"]
+model_version: "1.0_remote"
+model_identifier: "openai_smolvlm_nsfw_v1" # Unique identifier
+model_image_size: 512  # Assuming this is compatible with your pipeline
+model_info: "Remote SmolVLM (OpenAI-compatible) for NSFW detection"
+
+# Path to the NSFW tag list
+tag_list_path: "./models/nsfw_tags.txt" # Make sure this path is correct relative to your runtime CWD
+
+# OpenAICompatibleVLMClient specific fields
+api_base_url: "https://9eca6t6io9bbv7f6m81eid07jg.ingress.d3akash.cloud:8000"
+model_id: "smolvlm-v1.8b-gguf" # The model ID used by the remote API
+
+# Optional fields with defaults (can be omitted if defaults are acceptable)
+max_new_tokens: 128
+request_timeout: 70 # seconds
+retry_attempts: 3
+retry_backoff_factor: 0.5 
