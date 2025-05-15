@@ -118,9 +118,9 @@ def open_ui(stdscr):
                     active_categories.update(model['model_category'])
                     if current_index >= len(available_ai_models):
                         current_index = len(available_ai_models) - 1
-                    # Re-sort the lists
-                    available_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
-                    active_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
+                    # Re-sort the lists (ensure string comparison for identifier)
+                    available_ai_models.sort(key=lambda x: (x['model_category'][0], str(x['model_identifier'])))
+                    active_ai_models.sort(key=lambda x: (x['model_category'][0], str(x['model_identifier'])))
             elif current_list == 'active' and active_ai_models:
                 model = active_ai_models.pop(current_index)
                 available_ai_models.append(load_model_data(model['yaml_file_name']))
@@ -128,9 +128,9 @@ def open_ui(stdscr):
                 active_categories = {category for model in active_ai_models for category in model['model_category']}
                 if current_index >= len(active_ai_models):
                     current_index = len(active_ai_models) - 1
-                # Re-sort the lists
-                available_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
-                active_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
+                # Re-sort the lists (ensure string comparison for identifier)
+                available_ai_models.sort(key=lambda x: (x['model_category'][0], str(x['model_identifier'])))
+                active_ai_models.sort(key=lambda x: (x['model_category'][0], str(x['model_identifier'])))
         elif key == curses.KEY_LEFT:
             if current_list == 'active' and active_ai_models:
                 model = active_ai_models.pop(current_index)
@@ -139,9 +139,9 @@ def open_ui(stdscr):
                 active_categories = {category for model in active_ai_models for category in model['model_category']}
                 if current_index >= len(active_ai_models):
                     current_index = len(active_ai_models) - 1
-                # Re-sort the lists
-                available_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
-                active_ai_models.sort(key=lambda x: (x['model_category'][0], x['model_identifier']))
+                # Re-sort the lists (ensure string comparison for identifier)
+                available_ai_models.sort(key=lambda x: (x['model_category'][0], str(x['model_identifier'])))
+                active_ai_models.sort(key=lambda x: (x['model_category'][0], str(x['model_identifier'])))
             elif current_list == 'available' and available_ai_models:
                 model = available_ai_models[current_index]
                 incompatible = any(size != model['model_image_size'] for size in active_image_sizes) or any(category in active_categories for category in model['model_category'])
@@ -152,9 +152,9 @@ def open_ui(stdscr):
                     active_categories.update(model['model_category'])
                     if current_index >= len(available_ai_models):
                         current_index = len(available_ai_models) - 1
-                    # Re-sort the lists
-                    available_ai_models.sort(key=lambda x: (x['model_category'][0], int(x['model_identifier'])))
-                    active_ai_models.sort(key=lambda x: (x['model_category'][0], int(x['model_identifier'])))
+                    # Re-sort the lists (ensure string comparison for identifier)
+                    available_ai_models.sort(key=lambda x: (x['model_category'][0], str(x['model_identifier'])))
+                    active_ai_models.sort(key=lambda x: (x['model_category'][0], str(x['model_identifier'])))
         elif key == ord('q'):
             break
         elif key == ord('\t'):

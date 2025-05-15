@@ -16,4 +16,5 @@ model_id: "smolvlm-v1.8b-gguf" # The model ID used by the remote API
 max_new_tokens: 128
 request_timeout: 70 # seconds
 retry_attempts: 3
-retry_backoff_factor: 0.5 
+retry_backoff_factor: 0.5
+retry_jitter_factor: 0.25 # Added for jitter in retries 

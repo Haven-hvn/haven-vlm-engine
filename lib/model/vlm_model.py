@@ -6,6 +6,36 @@ from io import BytesIO
 from PIL import Image
 import logging
 import os # Added for reading tag_list_path
+import random # Added for jitter
+import time   # Added for custom sleep
+
+# Custom Retry class with jitter
+class RetryWithJitter(Retry):
+    def __init__(self, *args, jitter_factor=0.25, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.jitter_factor = jitter_factor
+        if not (0 <= self.jitter_factor <= 1):
+            # Warn if jitter_factor is outside typical range, but allow it.
+            # Depending on use case, >1 might be desired for very aggressive jitter.
+            logging.getLogger("logger").warning(
+                f"RetryWithJitter initialized with jitter_factor={self.jitter_factor}, which is outside the typical [0, 1] range."
+            )
+
+    def sleep(self, backoff_value):
+        """Sleep for the backoff time, adding jitter."""
+        # Respect Retry-After header if present (behavior from parent)
+        retry_after = self.get_retry_after(response=self._last_response)
+        if retry_after:
+            time.sleep(retry_after)
+            return
+
+        # Calculate jitter: random percentage of backoff_value up to jitter_factor
+        # This adds jitter on top of the exponentially backed-off value.
+        jitter = random.uniform(0, backoff_value * self.jitter_factor)
+        sleep_duration = backoff_value + jitter
+        
+        # Ensure sleep duration is not negative, then sleep
+        time.sleep(max(0, sleep_duration))
 
 class OpenAICompatibleVLMClient:
     def __init__(
@@ -33,14 +63,17 @@ class OpenAICompatibleVLMClient:
         # Setup retry mechanism for requests
         retry_attempts = int(config.get("retry_attempts", 3))
         retry_backoff_factor = float(config.get("retry_backoff_factor", 0.5))
+        retry_jitter_factor = float(config.get("retry_jitter_factor", 0.25)) # New config for jitter
         status_forcelist = (500, 502, 503, 504) # Common server-side errors to retry
 
-        retry_strategy = Retry(
+        # Use the custom RetryWithJitter class
+        retry_strategy = RetryWithJitter(
             total=retry_attempts,
             backoff_factor=retry_backoff_factor,
             status_forcelist=status_forcelist,
             allowed_methods=["POST"], # Ensure POST requests are retried
-            respect_retry_after_header=True
+            respect_retry_after_header=True,
+            jitter_factor=retry_jitter_factor # Pass jitter factor
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
         self.session = requests.Session()
@@ -50,7 +83,7 @@ class OpenAICompatibleVLMClient:
         self.logger.info(
             f"Initializing OpenAICompatibleVLMClient for model {self.model_id} "
             f"with {len(self.tag_list)} tags, targeting API: {self.api_base_url}. "
-            f"Retry: {retry_attempts} attempts, backoff {retry_backoff_factor}s."
+            f"Retry: {retry_attempts} attempts, backoff {retry_backoff_factor}s, jitter factor {retry_jitter_factor}."
         )
         self.logger.info(f"OpenAI VLM client initialized successfully")
 
