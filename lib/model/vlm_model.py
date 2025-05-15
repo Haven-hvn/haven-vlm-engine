@@ -8,12 +8,13 @@ import logging
 import os # Added for reading tag_list_path
 import random # Added for jitter
 import time   # Added for custom sleep
+from typing import Dict, Any, Optional, List, Tuple, TextIO # Added imports
 
 # Custom Retry class with jitter
 class RetryWithJitter(Retry):
-    def __init__(self, *args, jitter_factor=0.25, **kwargs):
+    def __init__(self, *args: Any, jitter_factor: float = 0.25, **kwargs: Any): # Added types for args, jitter_factor, kwargs
         super().__init__(*args, **kwargs)
-        self.jitter_factor = jitter_factor
+        self.jitter_factor: float = jitter_factor
         if not (0 <= self.jitter_factor <= 1):
             # Warn if jitter_factor is outside typical range, but allow it.
             # Depending on use case, >1 might be desired for very aggressive jitter.
@@ -21,18 +22,18 @@ class RetryWithJitter(Retry):
                 f"RetryWithJitter initialized with jitter_factor={self.jitter_factor}, which is outside the typical [0, 1] range."
             )
 
-    def sleep(self, backoff_value):
+    def sleep(self, backoff_value: float) -> None: # Added type for backoff_value and return type
         """Sleep for the backoff time, adding jitter."""
         # Respect Retry-After header if present (behavior from parent)
-        retry_after = self.get_retry_after(response=self._last_response)
+        retry_after: Optional[float] = self.get_retry_after(response=self._last_response)
         if retry_after:
             time.sleep(retry_after)
             return
 
         # Calculate jitter: random percentage of backoff_value up to jitter_factor
         # This adds jitter on top of the exponentially backed-off value.
-        jitter = random.uniform(0, backoff_value * self.jitter_factor)
-        sleep_duration = backoff_value + jitter
+        jitter: float = random.uniform(0, backoff_value * self.jitter_factor)
+        sleep_duration: float = backoff_value + jitter
         
         # Ensure sleep duration is not negative, then sleep
         time.sleep(max(0, sleep_duration))
@@ -40,34 +41,36 @@ class RetryWithJitter(Retry):
 class OpenAICompatibleVLMClient:
     def __init__(
         self,
-        config: dict, # Expects a dictionary with API and model settings
+        config: Dict[str, Any], # Expects a dictionary with API and model settings
     ):
         # Load parameters from config
-        self.api_base_url = str(config["api_base_url"]).rstrip('/')
-        self.model_id = str(config["model_id"])
-        self.max_new_tokens = int(config.get("max_new_tokens", 128))
-        self.request_timeout = int(config.get("request_timeout", 70)) # seconds
+        self.api_base_url: str = str(config["api_base_url"]).rstrip('/')
+        self.model_id: str = str(config["model_id"])
+        self.max_new_tokens: int = int(config.get("max_new_tokens", 128))
+        self.request_timeout: int = int(config.get("request_timeout", 70)) # seconds
         
-        tag_list_path = config.get("tag_list_path")
+        tag_list_path: Optional[str] = config.get("tag_list_path")
+        self.tag_list: List[str]
         if tag_list_path and os.path.exists(tag_list_path):
             with open(tag_list_path, 'r') as f:
-                self.tag_list = [line.strip() for line in f if line.strip()]
+                f_typed: TextIO = f # For type clarity
+                self.tag_list = [line.strip() for line in f_typed if line.strip()]
         elif "tag_list" in config and isinstance(config["tag_list"], list):
              self.tag_list = config["tag_list"]
         else:
             raise ValueError("Configuration must provide 'tag_list_path' or a 'tag_list'.")
         assert self.tag_list, "Loaded tag list is empty."
 
-        self.logger = logging.getLogger("logger")
+        self.logger: logging.Logger = logging.getLogger("logger")
 
         # Setup retry mechanism for requests
-        retry_attempts = int(config.get("retry_attempts", 3))
-        retry_backoff_factor = float(config.get("retry_backoff_factor", 0.5))
-        retry_jitter_factor = float(config.get("retry_jitter_factor", 0.25)) # New config for jitter
-        status_forcelist = (500, 502, 503, 504) # Common server-side errors to retry
+        retry_attempts: int = int(config.get("retry_attempts", 3))
+        retry_backoff_factor: float = float(config.get("retry_backoff_factor", 0.5))
+        retry_jitter_factor: float = float(config.get("retry_jitter_factor", 0.25)) # New config for jitter
+        status_forcelist: Tuple[int, ...] = (500, 502, 503, 504) # Common server-side errors to retry
 
         # Use the custom RetryWithJitter class
-        retry_strategy = RetryWithJitter(
+        retry_strategy: RetryWithJitter = RetryWithJitter(
             total=retry_attempts,
             backoff_factor=retry_backoff_factor,
             status_forcelist=status_forcelist,
@@ -75,8 +78,8 @@ class OpenAICompatibleVLMClient:
             respect_retry_after_header=True,
             jitter_factor=retry_jitter_factor # Pass jitter factor
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        self.session = requests.Session()
+        adapter: HTTPAdapter = HTTPAdapter(max_retries=retry_strategy)
+        self.session: requests.Session = requests.Session()
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
@@ -88,12 +91,12 @@ class OpenAICompatibleVLMClient:
         self.logger.info(f"OpenAI VLM client initialized successfully")
 
     def _convert_image_to_base64_data_url(self, frame: Image.Image, format: str = "JPEG") -> str:
-        buffered = BytesIO()
+        buffered: BytesIO = BytesIO()
         frame.save(buffered, format=format)
-        img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        img_str: str = base64.b64encode(buffered.getvalue()).decode('utf-8')
         return f"data:image/{format.lower()};base64,{img_str}"
 
-    def analyze_frame(self, frame: Image.Image) -> dict[str, float]:
+    def analyze_frame(self, frame: Optional[Image.Image]) -> Dict[str, float]: # Added Optional to frame
         """
         Process one frame:
           1) convert image to base64
@@ -101,18 +104,19 @@ class OpenAICompatibleVLMClient:
           3) run inference via API call
           4) parse tags + assign confidences
         """
+        tag: str # for dict comprehension
         if not frame:
             self.logger.warning("Analyze_frame called with no frame.")
             return {tag: 0.0 for tag in self.tag_list}
 
         try:
-            image_data_url = self._convert_image_to_base64_data_url(frame)
-        except Exception as e:
-            self.logger.error(f"Failed to convert image to base64: {e}", exc_info=True)
+            image_data_url: str = self._convert_image_to_base64_data_url(frame)
+        except Exception as e_convert: # Renamed exception
+            self.logger.error(f"Failed to convert image to base64: {e_convert}", exc_info=True)
             return {tag: 0.0 for tag in self.tag_list}
 
-        tags_str = ", ".join(self.tag_list)
-        messages = [
+        tags_str: str = ", ".join(self.tag_list)
+        messages: List[Dict[str, Any]] = [
             {
                 "role": "user",
                 "content": [
@@ -128,7 +132,7 @@ class OpenAICompatibleVLMClient:
             }
         ]
 
-        payload = {
+        payload: Dict[str, Any] = {
             "model": self.model_id,
             "messages": messages,
             "max_tokens": self.max_new_tokens,
@@ -136,13 +140,13 @@ class OpenAICompatibleVLMClient:
             "stream": False,
         }
 
-        api_url = f"{self.api_base_url}/v1/chat/completions"
+        api_url: str = f"{self.api_base_url}/v1/chat/completions"
         self.logger.debug(f"Sending request to {self.model_id} at {api_url} with image and {len(self.tag_list)} tags.")
 
-        raw_reply = ""
+        raw_reply: str = ""
         try:
             # Use the session with retry logic
-            response = self.session.post(
+            response: requests.Response = self.session.post(
                 api_url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
@@ -150,7 +154,7 @@ class OpenAICompatibleVLMClient:
             )
             response.raise_for_status()  # Raise an exception for HTTP errors (4xx or 5xx)
             
-            response_data = response.json()
+            response_data: Dict[str, Any] = response.json()
             if response_data.get("choices") and response_data["choices"][0].get("message"):
                 raw_reply = response_data["choices"][0]["message"].get("content", "")
             else:
@@ -159,38 +163,38 @@ class OpenAICompatibleVLMClient:
 
             self.logger.debug(f"Response received from {self.model_id}: {raw_reply}")
 
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"API request to {api_url} failed: {e}", exc_info=True)
+        except requests.exceptions.RequestException as e_req: # Renamed exception
+            self.logger.error(f"API request to {api_url} failed: {e_req}", exc_info=True)
             return {tag: 0.0 for tag in self.tag_list} # Return all tags with 0 confidence on error
-        except Exception as e:
-            self.logger.error(f"An unexpected error occurred during API call or response processing: {e}", exc_info=True)
+        except Exception as e_general: # Renamed exception
+            self.logger.error(f"An unexpected error occurred during API call or response processing: {e_general}", exc_info=True)
             return {tag: 0.0 for tag in self.tag_list}
 
         return self._parse_simple_default(raw_reply)
 
-    def _parse_simple_default(self, reply: str) -> dict[str, float]:
+    def _parse_simple_default(self, reply: str) -> Dict[str, float]:
         """
         Simple Default Scheme:
           - Any tag listed by the model → confidence = 0.8
           - All other tags → confidence = 0.0
         """
-        # Remove any "Assistant:" prefix or similar, an LLaMA model might add this.
-        # The API spec for OpenAI usually returns only the content.
-        # Let's ensure the reply is a string first.
+        tag_item: str # for dict comprehension, renamed to avoid conflict
         if not isinstance(reply, str):
             self.logger.warning(f"_parse_simple_default received non-string reply: {type(reply)}")
-            return {tag: 0.0 for tag in self.tag_list}
+            return {tag_item: 0.0 for tag_item in self.tag_list}
 
         # Check for common prefixes if any (though OpenAI API usually clean)
         if ":" in reply:
-            parts = reply.split(":", 1)
+            parts: List[str] = reply.split(":", 1)
             if len(parts) > 1 and parts[0].lower().strip() in ["assistant", "model", "ai", "bot", "response", "reply"]:
                  reply = parts[1]
         
         # Split on commas and normalize
-        found = {tag: 0.0 for tag in self.tag_list}
-        parsed_tags = [t.strip().lower() for t in reply.split(",") if t.strip()]
+        found: Dict[str, float] = {tag_item: 0.0 for tag_item in self.tag_list}
+        parsed_tags: List[str] = [t.strip().lower() for t in reply.split(",") if t.strip()]
         
+        t_model: str
+        tag_config: str
         for t_model in parsed_tags:
             for tag_config in self.tag_list:
                 if tag_config.lower() == t_model:

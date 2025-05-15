@@ -7,9 +7,11 @@ from lib.model.model import Model
 from lib.model.ai_model import AIModel
 # Updated import to the new client
 from lib.model.vlm_model import OpenAICompatibleVLMClient
+from typing import Dict, Any, List, Optional, Union, Tuple # Added imports
+from lib.async_lib.async_processing import ItemFuture, QueueItem # Added QueueItem
 
 class VLMAIModel(AIModel):
-    def __init__(self, configValues):
+    def __init__(self, configValues: Dict[str, Any]):
         # Ensure base AIModel init is called, model_file_name might not be relevant for remote API
         # but AIModel base class might expect it.
         # If "model_file_name" is not used by OpenAICompatibleVLMClient, 
@@ -23,15 +25,14 @@ class VLMAIModel(AIModel):
         
         # Store the full config for the client, or select specific keys
         # For now, assume configValues directly contains all necessary client settings
-        self.client_config = configValues 
+        self.client_config: Dict[str, Any] = configValues 
 
-        self.max_model_batch_size = int(configValues.get("max_model_batch_size", 1))
-        self.model_threshold = float(configValues.get("model_threshold", 0.5))
-        self.model_return_tags = bool(configValues.get("model_return_tags", True))
-        self.model_return_confidence = bool(configValues.get("model_return_confidence", True))
-        self.model_category = configValues.get("model_category")
-        self.model_version = str(configValues.get("model_version", "1.0"))
-        self.model_identifier = str(configValues.get("model_identifier", "default_vlm_identifier"))
+        self.max_model_batch_size: int = int(configValues.get("max_model_batch_size", 1))
+        self.model_threshold: float = float(configValues.get("model_threshold", 0.5))
+        self.model_return_confidence: bool = bool(configValues.get("model_return_confidence", True))
+        self.model_category: Union[str, List[str]] = configValues.get("model_category")
+        self.model_version: str = str(configValues.get("model_version", "1.0"))
+        self.model_identifier: str = str(configValues.get("model_identifier", "default_vlm_identifier"))
         
         # Fields like tag_list_path, vlm_model_name, use_quantization, device are now part of client_config
         # and handled by OpenAICompatibleVLMClient itself.
@@ -40,8 +41,8 @@ class VLMAIModel(AIModel):
             raise ValueError("model_category is required for VLM AI models")
         # tag_list_path check is now handled by OpenAICompatibleVLMClient
 
-        self.logger = logging.getLogger("logger")
-        self.vlm_model = None
+        self.logger: logging.Logger = logging.getLogger("logger")
+        self.vlm_model: Optional[OpenAICompatibleVLMClient] = None
         
         # localdevice might not be needed if all VLM work is remote.
         # For now, kept for the tensor to PIL conversion logic.
@@ -49,65 +50,119 @@ class VLMAIModel(AIModel):
         # self.localdevice = torch.device("cuda" if torch.cuda.is_available() else "cpu") 
         # Consider removing self.device and self.localdevice if not used elsewhere.
 
-    async def worker_function(self, data):
+    async def worker_function(self, data: List[QueueItem]):
         try:
-            # Process each item in the batch
+            item: QueueItem # Type for loop variable
             for i, item in enumerate(data):
-                itemFuture = item.item_future
-                image_tensor = itemFuture[item.input_names[0]]
-                threshold = itemFuture[item.input_names[1]] or self.model_threshold
-                return_confidence = self.model_return_confidence
-                if itemFuture[item.input_names[2]] is not None:
+                itemFuture: ItemFuture = item.item_future
+                image_tensor: Any = itemFuture[item.input_names[0]] # Assuming torch.Tensor like object
+                threshold: float = itemFuture.get(item.input_names[1], self.model_threshold) # Use get for safety
+                
+                # Ensure threshold is float
+                if not isinstance(threshold, float):
+                    threshold = self.model_threshold
+
+                return_confidence: bool = self.model_return_confidence
+                # Check if item.input_names[2] exists and is not None
+                if len(item.input_names) > 2 and item.input_names[2] is not None and itemFuture.get(item.input_names[2]) is not None:
                     return_confidence = itemFuture[item.input_names[2]]
                 
-                # Convert tensor to PIL Image for VLM processing
-                # Note: This conversion might need adjustment based on your preprocessing
-                image_np = image_tensor.cpu().numpy()
+                image_np: np.ndarray
+                if hasattr(image_tensor, 'cpu') and hasattr(image_tensor, 'numpy'): # Check if it's a tensor
+                    image_np = image_tensor.cpu().numpy()
+                elif isinstance(image_tensor, np.ndarray):
+                    image_np = image_tensor # Already a numpy array
+                elif isinstance(image_tensor, Image.Image): # If it's already a PIL Image
+                    image_pil: Image.Image = image_tensor # Skip conversion
+                    # Directly process if it's already a PIL image
+                    curr_time_pil: float = time.time()
+                    scores_pil: Dict[str, float] = self.vlm_model.analyze_frame(image_pil)
+                    self.logger.debug(f"Processed PIL image with VLM in {time.time() - curr_time_pil}s")
+                    # ... (rest of the logic for PIL image, similar to below)
+                else:
+                    self.logger.error(f"Unsupported image_tensor type: {type(image_tensor)}")
+                    # Handle error or skip item
+                    await itemFuture.set_exception(TypeError(f"Unsupported image_tensor type: {type(image_tensor)}"))
+                    continue
+
+                # Handle different tensor formats if not already a PIL image
+                if not isinstance(image_tensor, Image.Image):
+                    if image_np.ndim == 3 and image_np.shape[0] == 3:  # CHW
+                        image_np = np.transpose(image_np, (1, 2, 0)) # HWC
+                    elif image_np.ndim == 2: # Grayscale H W
+                         # If grayscale, VLM might expect 3 channels. Stack it or handle as is.
+                         # For now, let's assume it needs to be converted to RGB for PIL fromarray
+                        image_np = np.stack((image_np,)*3, axis=-1)
+
+                    # Ensure data is in range [0, 1] if it's float, then scale to [0, 255]
+                    if image_np.dtype == np.float32 or image_np.dtype == np.float64:
+                        if image_np.min() >= 0 and image_np.max() <= 1:
+                            image_np = (image_np * 255)
+                        # else: values are not in [0,1], could be already [0,255] or other range.
+                        # logger might be useful here if assumptions about range are critical.
+                    
+                    image_np = image_np.astype(np.uint8)
+                    image_pil: Image.Image = Image.fromarray(image_np)
                 
-                # Handle different tensor formats
-                if image_np.shape[0] == 3:  # If in CHW format (channels, height, width)
-                    image_np = np.transpose(image_np, (1, 2, 0))
+                curr_time: float = time.time()
+                scores: Dict[str, float] = self.vlm_model.analyze_frame(image_pil)
+                self.logger.debug(f"Processed image with VLM in {time.time() - curr_time}s")
                 
-                # Convert to uint8 for PIL
-                image_np = (image_np * 255).astype('uint8')
-                image_pil = Image.fromarray(image_np)
+                # Ensure output_names is a list
+                current_output_names: List[str]
+                if isinstance(item.output_names, str):
+                    current_output_names = [item.output_names]
+                elif isinstance(item.output_names, list):
+                    current_output_names = item.output_names
+                else: # Should not happen based on ModelWrapper
+                    self.logger.error(f"Unexpected type for item.output_names: {type(item.output_names)}")
+                    await itemFuture.set_exception(TypeError("Invalid output_names type"))
+                    continue
+
+                toReturn: Dict[str, List[Union[Tuple[str, float], str]]] = {output_name: [] for output_name in current_output_names}
                 
-                # Process with VLM model
-                curr = time.time()
-                scores = self.vlm_model.analyze_frame(image_pil)
-                self.logger.debug(f"Processed image with VLM in {time.time() - curr}s")
-                
-                # Format results for the existing pipeline
-                toReturn = {output_name: [] for output_name in item.output_names}
-                
-                # Convert scores to the format expected by the existing pipeline
+                tag_name: str
+                confidence: float
                 for tag_name, confidence in scores.items():
                     if confidence > threshold:
+                        tag: Union[Tuple[str, float], str]
                         if return_confidence:
                             tag = (tag_name, round(confidence, 2))
                         else:
                             tag = tag_name
                         
-                        # Add to the appropriate category
+                        # Add to the appropriate category based on self.model_category and current_output_names
+                        # This logic assumes self.model_category maps to or is contained in current_output_names
+                        # For simplicity, if model_category is a list, we take the first. This might need refinement.
+                        target_output_name: str
                         if isinstance(self.model_category, list):
-                            # If multiple categories, add to the first one
-                            # This might need adjustment based on your needs
-                            toReturn[item.output_names[0]].append(tag)
-                        else:
-                            toReturn[item.output_names[0]].append(tag)
-                
-                # Set the results
-                for output_name, result_list in toReturn.items():
-                    await itemFuture.set_data(output_name, result_list)
+                            if self.model_category: # Ensure list is not empty
+                                target_output_name = self.model_category[0]
+                            else: # Should not happen if validation is done in __init__
+                                self.logger.warning("Model category list is empty.")
+                                continue # Skip this tag
+                        else: # string
+                            target_output_name = self.model_category
+
+                        if target_output_name in toReturn:
+                             toReturn[target_output_name].append(tag)
+                        elif current_output_names: # Fallback to the first output name if specific category not found
+                            toReturn[current_output_names[0]].append(tag)
+
+                output_name_key: str
+                result_list: List[Union[Tuple[str, float], str]]
+                for output_name_key, result_list_val in toReturn.items():
+                    await itemFuture.set_data(output_name_key, result_list_val)
                 
         except Exception as e:
             self.logger.error(f"Error in VLM AI model worker_function: {e}")
             self.logger.debug(f"Error in {self.model_identifier}")
             self.logger.debug("Stack trace:", exc_info=True)
-            for item in data:
-                item.item_future.set_exception(e)
+            item_err: QueueItem # type for loop var
+            for item_err in data: # item was already defined
+                item_err.item_future.set_exception(e)
 
-    async def load(self):
+    async def load(self) -> None:
         if self.vlm_model is None:
             self.logger.info(f"Loading VLM client for model_id: {self.client_config.get('model_id')}")
             
