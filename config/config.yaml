@@ -2,4 +2,4 @@ active_pipelines: ["image_pipeline_dynamic", "video_pipeline_dynamic", "vlm_pipe
 default_image_pipeline: "image_pipeline_dynamic"
 default_video_pipeline: "video_pipeline_dynamic"
 loglevel: "DEBUG"
-port: 8000
+port: 7046

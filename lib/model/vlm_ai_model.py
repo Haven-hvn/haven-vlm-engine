@@ -160,6 +160,9 @@ class VLMAIModel(AIModel):
                 result_list: List[Union[Tuple[str, float], str]]
                 for output_name_key, result_list_val in toReturn.items():
                     await itemFuture.set_data(output_name_key, result_list_val)
+            self.logger.info(f"Processed {len(data)} items with VLM AI model {self.model_identifier}")
+            # the length of data is always 1
+                    
                 
         except Exception as e:
             self.logger.error(f"Error in VLM AI model worker_function: {e}")

@@ -5,6 +5,7 @@ from lib.model.model_manager import ModelManager
 from lib.pipeline.dynamic_ai_manager import DynamicAIManager
 from lib.pipeline.model_wrapper import ModelWrapper
 from typing import List, Dict, Any, Optional, Set, Union, Tuple
+from lib.model.vlm_ai_model import VLMAIModel
 
 class Pipeline:
     def __init__(self, configValues: Dict[str, Any], model_manager: ModelManager, dynamic_ai_manager: DynamicAIManager):
@@ -67,6 +68,13 @@ class Pipeline:
                         if cat in categories_set:
                             raise ValueError(f"Error: AI models must not have overlapping categories! Category: {cat}")
                         categories_set.add(cat)
+        
+        # Determine if this is a VLM pipeline and configure VideoPreprocessorModels accordingly
+        is_vlm_pipeline: bool = any(isinstance(mw.model.model, VLMAIModel) for mw in self.models if hasattr(mw.model, 'model'))
+        if is_vlm_pipeline:
+            for model_wrapper in self.models:
+                if hasattr(model_wrapper.model, 'model') and isinstance(model_wrapper.model.model, VideoPreprocessorModel):
+                    model_wrapper.model.model.set_vlm_pipeline_mode(True)
     
     async def event_handler(self, itemFuture: ItemFuture, key: str) -> None:
         if key == self.output:

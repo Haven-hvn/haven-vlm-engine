@@ -6,15 +6,20 @@ from lib.model.preprocessing_python.image_preprocessing import preprocess_video
 from typing import Dict, Any, List, Optional, Union, Tuple
 
 class VideoPreprocessorModel(Model):
-    def __init__(self, configValues: Dict[str, Any]):
-        super().__init__(configValues)
-        self.image_size: Union[int, Tuple[int, int]] = configValues.get("image_size", 512)
-        self.frame_interval: float = float(configValues.get("frame_interval", 0.5))
-        self.use_half_precision: bool = bool(configValues.get("use_half_precision", True))
-        self.device: Optional[str] = configValues.get("device")
-        self.normalization_config: Union[int, Dict[str, List[float]]] = configValues.get("normalization_config", 1)
-        self.logger: logging.Logger = logging.getLogger("logger")
+    def __init__(self, model_config: Dict[str, Any]):
+        super().__init__(model_config)
+        self.logger = logging.getLogger("logger")
+        self.device: str = model_config.get("device", "cpu")
+        self.image_size: Union[int, List[int]] = model_config.get("image_size", 512)
+        self.frame_interval: float = model_config.get("frame_interval", 0.5)
+        self.use_half_precision: bool = model_config.get("use_half_precision", True)
+        self.normalization_config: Union[int, Dict[str, List[float]]] = model_config.get("normalization_config", 1)
+        self.process_for_vlm: bool = False
     
+    def set_vlm_pipeline_mode(self, mode: bool) -> None:
+        self.process_for_vlm = mode
+        self.logger.info(f"VideoPreprocessorModel VLM mode set to: {self.process_for_vlm}")
+
     async def worker_function(self, queue_items: List[QueueItem]) -> None:
         item: QueueItem
         for item in queue_items:
@@ -34,7 +39,7 @@ class VideoPreprocessorModel(Model):
                 
                 frame_index: int
                 frame_tensor: Any
-                for frame_index, frame_tensor in preprocess_video(video_path, current_frame_interval, self.image_size, self.use_half_precision, self.device, use_timestamps, vr_video=vr_video, norm_config_idx=norm_config_to_use):
+                for frame_index, frame_tensor in preprocess_video(video_path, current_frame_interval, self.image_size, self.use_half_precision, self.device, use_timestamps, vr_video=vr_video, norm_config_idx=norm_config_to_use, process_for_vlm=self.process_for_vlm):
                     processed_frames_count += 1
                     newTime: float = time.time()
                     totalTime += newTime - oldTime
