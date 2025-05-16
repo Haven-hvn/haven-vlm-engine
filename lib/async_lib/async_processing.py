@@ -1,69 +1,16 @@
 import asyncio
 import logging
-from typing import Dict, List, Any, Optional, Union, Callable, Awaitable, Generator, TYPE_CHECKING
+from typing import Dict, List, Any, Optional, Union, Callable, Awaitable, TYPE_CHECKING
 
 from lib.model.ai_model import AIModel
 from lib.model.skip_input import Skip
+from lib.async_lib.queue_item import ItemFuture, QueueItem # Import from new location
 
 if TYPE_CHECKING:
     from lib.model.model import Model # For type hinting ModelProcessor.model
     from lib.model.ai_model import AIModel # For type hinting ModelProcessor.is_ai_model check
 
 logger: logging.Logger = logging.getLogger("logger")
-
-class ItemFuture:
-    def __init__(self, parent: Optional['ItemFuture'], event_handler: Callable[['ItemFuture', str], Awaitable[None]]):
-        self.parent: Optional['ItemFuture'] = parent
-        self.handler: Callable[['ItemFuture', str], Awaitable[None]] = event_handler
-        self.future: asyncio.Future[Any] = asyncio.Future()
-        self.data: Optional[Dict[str, Any]] = {}
-    
-    async def set_data(self, key: str, value: Any) -> None:
-        if self.data is not None:
-            self.data[key] = value
-        await self.handler(self, key)
-
-    async def __setitem__(self, key: str, value: Any) -> None:
-        await self.set_data(key, value)
-
-    def close_future(self, value: Any) -> None:
-        self.data = None # Clear data when future is closed
-        if not self.future.done():
-            self.future.set_result(value)
-
-    def set_exception(self, exception: Exception) -> None:
-        self.data = None # Clear data on exception
-        if not self.future.done():
-            self.future.set_exception(exception)
-    
-    def __getitem__(self, key: str) -> Any:
-        if self.data is None:
-            # Or raise an error, or return a default, depending on desired behavior
-            # when accessing data after future is closed/excepted.
-            return None 
-        return self.data.get(key)
-
-    def __await__(self) -> Generator[Any, None, Any]:
-        # This makes ItemFuture awaitable, yielding the result of its internal asyncio.Future
-        yield from self.future.__await__()
-        return self.future.result()
-
-    @classmethod
-    async def create(cls, parent: Optional['ItemFuture'], data: Dict[str, Any], event_handler: Callable[['ItemFuture', str], Awaitable[None]]) -> 'ItemFuture':
-        self_ref: 'ItemFuture' = cls(parent, event_handler) # Renamed 'self' to 'self_ref' for clarity
-        if self_ref.data is not None: # Should always be true here as it's just initialized
-            key: str
-            for key in data:
-                # Directly assign to data dict before calling handler for initial setup
-                self_ref.data[key] = data[key] 
-                await self_ref.handler(self_ref, key)
-        return self_ref
-
-class QueueItem:
-    def __init__(self, itemFuture: ItemFuture, input_names: List[str], output_names: Union[str, List[str]]):
-        self.item_future: ItemFuture = itemFuture
-        self.input_names: List[str] = input_names
-        self.output_names: Union[str, List[str]] = output_names
 
 class ModelProcessor():
     def __init__(self, model: 'Model'): # Use forward reference for Model

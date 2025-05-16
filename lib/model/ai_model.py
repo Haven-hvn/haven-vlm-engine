@@ -4,7 +4,7 @@ from lib.model.model import Model
 from lib.model.ai_model_python.python_model import PythonModel as AiPythonModel
 import time
 from typing import Dict, Any, List, Optional, Union, Tuple, TextIO
-from lib.async_lib.async_processing import QueueItem, ItemFuture
+from lib.async_lib.queue_item import QueueItem, ItemFuture
 
 # Placeholder for ModelRunner if ai_processing is not available/inspectable
 # If ModelRunner is a known class, replace Any with it.

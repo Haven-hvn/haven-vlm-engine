@@ -56,7 +56,10 @@ class VLMAIModel(AIModel):
             for i, item in enumerate(data):
                 itemFuture: ItemFuture = item.item_future
                 image_tensor: Any = itemFuture[item.input_names[0]] # Assuming torch.Tensor like object
-                threshold: float = itemFuture.get(item.input_names[1], self.model_threshold) # Use get for safety
+                
+                # threshold: float = itemFuture.get(item.input_names[1], self.model_threshold) # Use get for safety
+                threshold_val: Optional[float] = itemFuture[item.input_names[1]] if len(item.input_names) > 1 and item.input_names[1] is not None else None
+                threshold: float = threshold_val if threshold_val is not None else self.model_threshold
                 
                 # Ensure threshold is float
                 if not isinstance(threshold, float):
@@ -64,8 +67,12 @@ class VLMAIModel(AIModel):
 
                 return_confidence: bool = self.model_return_confidence
                 # Check if item.input_names[2] exists and is not None
-                if len(item.input_names) > 2 and item.input_names[2] is not None and itemFuture.get(item.input_names[2]) is not None:
-                    return_confidence = itemFuture[item.input_names[2]]
+                # if len(item.input_names) > 2 and item.input_names[2] is not None and itemFuture.get(item.input_names[2]) is not None:
+                #    return_confidence = itemFuture[item.input_names[2]]
+                if len(item.input_names) > 2 and item.input_names[2] is not None:
+                    confidence_val: Optional[bool] = itemFuture[item.input_names[2]]
+                    if confidence_val is not None:
+                        return_confidence = confidence_val
                 
                 image_np: np.ndarray
                 if hasattr(image_tensor, 'cpu') and hasattr(image_tensor, 'numpy'): # Check if it's a tensor

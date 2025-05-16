@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, Any, Optional, List
-from lib.async_lib.async_processing import QueueItem
+from lib.async_lib.queue_item import QueueItem
 
 
 class Model:

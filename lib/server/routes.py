@@ -41,7 +41,7 @@ async def process_video(request: VideoPathList) -> VideoResult:
         
         video_result: Optional[AIVideoResult]
         json_save_needed: bool
-        video_result, json_save_needed = AIVideoResult.from_client_json(json=request.existing_json_data)
+        video_result, json_save_needed = AIVideoResult.from_client_json(json_data=request.existing_json_data)
 
         data: List[Any] = [request.path, request.returnTimestamps, request.frame_interval, request.threshold, request.return_confidence, request.vr_video, None, None]
         if video_result is not None:

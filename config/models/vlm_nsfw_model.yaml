@@ -13,3 +13,5 @@ model_info: base smolvlm model
 tag_list_path: "./models/nsfw_tags.txt"
 vlm_model_name: "HuggingFaceTB/SmolVLM-Instruct"
 use_quantization: true
+model_id: "HuggingFaceTB/SmolVLM-Instruct"
+api_base_url: "http://kmk97556f9chr8nokqj47l83d0.ingress.boogle.cloud"

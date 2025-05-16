@@ -3,13 +3,8 @@ from lib.model.ai_model import AIModel
 from lib.model.video_preprocessor import VideoPreprocessorModel
 from lib.model.model_manager import ModelManager
 from lib.pipeline.dynamic_ai_manager import DynamicAIManager
+from lib.pipeline.model_wrapper import ModelWrapper
 from typing import List, Dict, Any, Optional, Set, Union, Tuple
-
-class ModelWrapper:
-    def __init__(self, model: Any, inputs: List[str], outputs: Union[str, List[str]]):
-        self.model: Any = model
-        self.inputs: List[str] = inputs
-        self.outputs: Union[str, List[str]] = outputs
 
 class Pipeline:
     def __init__(self, configValues: Dict[str, Any], model_manager: ModelManager, dynamic_ai_manager: DynamicAIManager):

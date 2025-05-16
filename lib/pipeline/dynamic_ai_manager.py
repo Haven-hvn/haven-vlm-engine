@@ -2,7 +2,7 @@ import logging
 from lib.config.config_utils import load_config
 from lib.model.ai_model import AIModel
 from lib.model.model_manager import ModelManager
-from lib.pipeline.pipeline import ModelWrapper
+from lib.pipeline.model_wrapper import ModelWrapper
 from lib.migrations.migration_v20 import migrate_to_2_0
 from lib.server.exceptions import NoActiveModelsException
 from typing import List, Dict, Any, Optional, Union, Tuple

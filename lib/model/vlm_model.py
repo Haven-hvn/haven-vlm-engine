@@ -142,7 +142,7 @@ class OpenAICompatibleVLMClient:
 
         api_url: str = f"{self.api_base_url}/v1/chat/completions"
         self.logger.debug(f"Sending request to {self.model_id} at {api_url} with image and {len(self.tag_list)} tags.")
-
+        self.logger.debug(f"Messages: {messages}")
         raw_reply: str = ""
         try:
             # Use the session with retry logic

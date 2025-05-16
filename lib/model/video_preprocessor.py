@@ -23,7 +23,7 @@ class VideoPreprocessorModel(Model):
                 totalTime: float = 0.0
                 video_path: str = itemFuture[item.input_names[0]]
                 use_timestamps: bool = itemFuture[item.input_names[1]]
-                frame_interval_override: Optional[float] = itemFuture.get(item.input_names[2])
+                frame_interval_override: Optional[float] = itemFuture[item.input_names[2]]
                 current_frame_interval: float = frame_interval_override if frame_interval_override is not None else self.frame_interval
                 vr_video: bool = itemFuture[item.input_names[5]]
                 
@@ -34,7 +34,7 @@ class VideoPreprocessorModel(Model):
                 
                 frame_index: int
                 frame_tensor: Any
-                for frame_index, frame_tensor in preprocess_video(video_path, current_frame_interval, self.image_size, self.use_half_precision, self.device, use_timestamps, vr_video=vr_video, norm_config=norm_config_to_use):
+                for frame_index, frame_tensor in preprocess_video(video_path, current_frame_interval, self.image_size, self.use_half_precision, self.device, use_timestamps, vr_video=vr_video, norm_config_idx=norm_config_to_use):
                     processed_frames_count += 1
                     newTime: float = time.time()
                     totalTime += newTime - oldTime
@@ -43,9 +43,9 @@ class VideoPreprocessorModel(Model):
                     future_data_payload: Dict[str, Any] = {
                         item.output_names[1]: frame_tensor, 
                         item.output_names[2]: frame_index,
-                        item.output_names[3]: itemFuture.get(item.input_names[3]),
-                        item.output_names[4]: itemFuture.get(item.input_names[4]),
-                        item.output_names[5]: itemFuture.get(item.input_names[6])
+                        item.output_names[3]: itemFuture[item.input_names[3]],
+                        item.output_names[4]: itemFuture[item.input_names[4]],
+                        item.output_names[5]: itemFuture[item.input_names[6]]
                     }
                     result_future: ItemFuture = await ItemFuture.create(item, future_data_payload, item.item_future.handler)
                     children.append(result_future)
@@ -57,11 +57,14 @@ class VideoPreprocessorModel(Model):
                 
                 await itemFuture.set_data(item.output_names[0], children)
             except FileNotFoundError as fnf_error:
-                self.logger.error(f"File not found error processing {itemFuture.get(item.input_names[0], 'unknown_file')}: {fnf_error}")
+                video_file_path_for_log = itemFuture[item.input_names[0]] or 'unknown_file'
+                self.logger.error(f"File not found error processing {video_file_path_for_log}: {fnf_error}")
                 itemFuture.set_exception(fnf_error)
             except IOError as io_error:
-                self.logger.error(f"IO error (video might be corrupted) processing {itemFuture.get(item.input_names[0], 'unknown_file')}: {io_error}")
+                video_file_path_for_log = itemFuture[item.input_names[0]] or 'unknown_file'
+                self.logger.error(f"IO error (video might be corrupted) processing {video_file_path_for_log}: {io_error}")
                 itemFuture.set_exception(io_error)
             except Exception as e:
-                self.logger.error(f"An unexpected error occurred processing {itemFuture.get(item.input_names[0], 'unknown_file')}: {e}", exc_info=True)
+                video_file_path_for_log = itemFuture[item.input_names[0]] or 'unknown_file'
+                self.logger.error(f"An unexpected error occurred processing {video_file_path_for_log}: {e}", exc_info=True)
                 itemFuture.set_exception(e)

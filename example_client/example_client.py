@@ -29,13 +29,13 @@ async def process_videos_async(video_paths):
         return await call_api_async(session, 'process_video/', {"path": video_paths, "frame_interval": 2, "threshold": 0.5, "return_confidence": True, "vr_video": False, "existing_json": None})
 
 def main():
-    image_paths = ['image_path1', 'image_path2', 'invalidpath']
-    video_path = 'video_path1'
+    # image_paths = ['image_path1', 'image_path2', 'invalidpath']
+    video_path = '/home/user/haven-vlm-engine/sample.m4v'
 
-    image_results = ImageResult(**asyncio.run(process_images_async(image_paths)))
+    # image_results = ImageResult(**asyncio.run(process_images_async(image_paths)))
     video_results = VideoResult(**asyncio.run(process_videos_async(video_path)))
 
-    print("Image Processing Results:", image_results)
+    # print("Image Processing Results:", image_results)
     print("Video Processing Results:", video_results)
 
 if __name__ == "__main__":
