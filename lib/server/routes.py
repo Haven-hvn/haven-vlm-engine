@@ -161,7 +161,6 @@ async def process_video(request: VideoPathList) -> VideoResult:
             "json_result": json_result_str,
             "video_tag_info": video_tag_info_for_client
         }
-        logger.trace(f"Final data being wrapped by VideoResult for video {request.path}: {final_result_for_client}")
         
         return VideoResult(result=final_result_for_client)
     except HTTPException:
