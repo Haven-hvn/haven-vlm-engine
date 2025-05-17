@@ -155,13 +155,13 @@ async def process_video(request: VideoPathList) -> VideoResult:
             "tag_totals": processed_tag_totals,
             "tag_timespans": processed_tag_timespans
         }
-        logger.info(f"Constructed video_tag_info_for_client for video {request.path}: {video_tag_info_for_client}")
+        logger.debug(f"Constructed video_tag_info_for_client for video {request.path}: {video_tag_info_for_client}")
 
         final_result_for_client: Dict[str, Any] = {
             "json_result": json_result_str,
             "video_tag_info": video_tag_info_for_client
         }
-        logger.debug(f"Final data being wrapped by VideoResult for video {request.path}: {final_result_for_client}")
+        logger.trace(f"Final data being wrapped by VideoResult for video {request.path}: {final_result_for_client}")
         
         return VideoResult(result=final_result_for_client)
     except HTTPException:
