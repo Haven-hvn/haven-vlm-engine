@@ -173,59 +173,31 @@ def preprocess_video(video_path: str, frame_interval_sec: float = 0.5, img_size:
     if process_for_vlm:
         for i in range(0, len(vr), frames_to_skip):
             try:
-                frame = vr[i].to(actual_device) # HWC, RGB, (likely) uint8 tensor on device
+                # Load frame to CPU first
+                frame_cpu = vr[i] 
             except RuntimeError as e_read_frame:
                 logger.warning(f"Could not read frame {i} from {video_path}: {e_read_frame}")
                 continue
             
-            # 1. Crop black bars (operates on uint8 frame if that's what decord returns)
-            #    Threshold in crop_black_bars_lr (10.0) is suitable for [0-255] range.
-            frame = crop_black_bars_lr(frame) # Output is likely uint8 view
-            
-            # 2. Ensure float and scale to [0,1]
-            if not torch.is_floating_point(frame): # If uint8 (which it should be after cropping uint8 input)
-                frame = frame.float() / 255.0 # Convert to float and scale to [0,1]
-            # else: if frame was already float from decord (e.g. [0-255] or [0-1]),
-            # this scaling might need adjustment or crop_black_bars_lr threshold would need to be adaptive.
-            # Assuming decord provides uint8 or float [0-255] primarily, then scaling to [0,1] here is okay.
-            # If decord provided float [0,1], the crop_black_bars_lr threshold would be an issue if not handled.
-            # Current assumption: crop_black_bars_lr handles this via its fixed threshold or input is [0-255]
-            
-            # 3. Clone to free memory from original frame's black bars if crop occurred
-            #    and to make the tensor contiguous after potential view from crop.
-            frame = frame.clone() # Now HWC, float, [0,1] (or original float range if not scaled), contiguous
-            
-            # 4. Resize (HWC -> CHW -> Resize -> HWC)
-            vlm_target_hw: Tuple[int, int]
-            if isinstance(img_size, int):
-                vlm_target_hw = (img_size, img_size) # (height, width)
-            elif isinstance(img_size, tuple) and len(img_size) == 2:
-                vlm_target_hw = img_size # Assuming input is (height, width)
-            else:
-                logger.warning(f"Invalid img_size {img_size} for VLM, defaulting to (224, 224) for resize.")
-                vlm_target_hw = (224, 224) # Default (height, width)
+            # Crop black bars on CPU
+            # crop_black_bars_lr will return a clone if cropped, or original if not.
+            frame_cpu = crop_black_bars_lr(frame_cpu)
 
-            if frame.shape[0] > 0 and frame.shape[1] > 0: # Check for non-empty frame (H, W > 0)
-                if frame.ndim == 3 and frame.shape[2] >= 3: # Check for HWC format with at least 3 channels
-                    frame_chw = frame.permute(2, 0, 1) # HWC to CHW
-                    # transforms.functional.resize expects size as (h, w)
-                    resized_frame_chw = transforms.functional.resize(frame_chw, list(vlm_target_hw), antialias=True)
-                    frame = resized_frame_chw.permute(1, 2, 0) # CHW to HWC
-                else:
-                    logger.warning(f"Frame for VLM processing has invalid dimensions or channels ({frame.shape}) before resize for {video_path} at frame {i}. Skipping resize.")
-            else:
-                logger.warning(f"Frame dimensions are zero or invalid after crop/clone for {video_path} at frame {i}. Skipping resize.")
+            # Move (potentially smaller) frame to target device
+            frame = frame_cpu.to(actual_device)
             
-            # 5. Half precision
+            if not torch.is_floating_point(frame): # If uint8 on device (after potential crop)
+                frame = frame.float() # Convert to float, but keep original range (e.g., 0-255)
+            # else: frame is already float, assume its range is what VLM expects
+            
             if use_half_precision:
                 frame = frame.half()
             
-            # 6. VR Permute
             if vr_video: 
                 # Assuming vr_permute is defined elsewhere and handles HWC input, returning HWC
                 frame = vr_permute(frame) 
             
-            # VLM receives HWC, RGB, float/half, [0,1] scaled (if originally uint8) and resized tensor
+            # VLM receives HWC, RGB, float/half, [0,1] scaled tensor (or original range if not scaled before)
             transformed_frame = frame
             
             frame_identifier: Union[int, float] = i / fps if use_timestamps else i
@@ -314,5 +286,5 @@ def crop_black_bars_lr(frame: torch.Tensor, black_threshold: float = 10.0, colum
 
     cropped_frame = frame[:, x_start:x_end, :]
     logger.debug(f"Cropped frame from W={W} to W'={cropped_frame.shape[1]} (x_start={x_start}, x_end={x_end})")
-    return cropped_frame
+    return cropped_frame.clone() # Clone the cropped frame to ensure it's a new tensor
     
