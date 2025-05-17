@@ -45,12 +45,20 @@ class DynamicAIManager:
         video_preprocessor.model.normalization_config = self.normalization_config
 
         # add a preprocessor
-        model_wrappers.append(ModelWrapper(video_preprocessor, inputs, ["dynamic_children", "dynamic_frame", "frame_index", "dynamic_threshold", "dynamic_return_confidence", "dynamic_skipped_categories"]))
+        model_wrappers.append(ModelWrapper(video_preprocessor, inputs, 
+                                         ["dynamic_children", "dynamic_frame", "frame_index", "dynamic_threshold", "dynamic_return_confidence", "dynamic_skipped_categories"], 
+                                         model_name_for_logging="video_preprocessor_dynamic"))
 
         # add the ai models
         model: AIModel
-        for model in self.models:
-            model_wrappers.append(ModelWrapper(model, ["dynamic_frame", "dynamic_threshold", "dynamic_return_confidence", "dynamic_skipped_categories"], model.model.model_category))
+        for model_idx, model in enumerate(self.models):
+            # Try to get a meaningful name for logging, e.g., from model_identifier or model_file_name
+            log_name = getattr(model.model, 'model_identifier', None) or \
+                         getattr(model.model, 'model_file_name', f"active_ai_model_{model_idx}")
+            model_wrappers.append(ModelWrapper(model, 
+                                             ["dynamic_frame", "dynamic_threshold", "dynamic_return_confidence", "dynamic_skipped_categories"], 
+                                             model.model.model_category, 
+                                             model_name_for_logging=str(log_name)))
 
         # coalesce all the ai results
         coalesce_inputs: List[str] = []
@@ -61,13 +69,22 @@ class DynamicAIManager:
             else:
                 coalesce_inputs.append(categories)
         coalesce_inputs.insert(0, "frame_index")
-        model_wrappers.append(ModelWrapper(self.model_manager.get_or_create_model("result_coalescer"), coalesce_inputs, ["dynamic_result"]))
+        model_wrappers.append(ModelWrapper(self.model_manager.get_or_create_model("result_coalescer"), 
+                                         coalesce_inputs, 
+                                         ["dynamic_result"],
+                                         model_name_for_logging="result_coalescer"))
 
         # finish results
-        model_wrappers.append(ModelWrapper(self.model_manager.get_or_create_model("result_finisher"), ["dynamic_result"], []))
+        model_wrappers.append(ModelWrapper(self.model_manager.get_or_create_model("result_finisher"), 
+                                         ["dynamic_result"], 
+                                         [], 
+                                         model_name_for_logging="result_finisher"))
 
         # await children
-        model_wrappers.append(ModelWrapper(self.model_manager.get_or_create_model("batch_awaiter"), ["dynamic_children"], outputs))
+        model_wrappers.append(ModelWrapper(self.model_manager.get_or_create_model("batch_awaiter"), 
+                                         ["dynamic_children"], 
+                                         outputs, 
+                                         model_name_for_logging="batch_awaiter"))
         self.logger.debug("Finished creating dynamic Video AI models")
         return model_wrappers
     
@@ -79,12 +96,20 @@ class DynamicAIManager:
         image_preprocessor.model.normalization_config = self.normalization_config
 
         # add a preprocessor
-        model_wrappers.append(ModelWrapper(image_preprocessor, [inputs[0]], ["dynamic_image"]))
+        model_wrappers.append(ModelWrapper(image_preprocessor, 
+                                         [inputs[0]], 
+                                         ["dynamic_image"], 
+                                         model_name_for_logging="image_preprocessor_dynamic"))
 
         # add the ai models
         model: AIModel
-        for model in self.models:
-            model_wrappers.append(ModelWrapper(model, ["dynamic_image", inputs[1], inputs[2], inputs[3]], model.model.model_category))
+        for model_idx, model in enumerate(self.models):
+            log_name = getattr(model.model, 'model_identifier', None) or \
+                         getattr(model.model, 'model_file_name', f"active_ai_model_{model_idx}")
+            model_wrappers.append(ModelWrapper(model, 
+                                             ["dynamic_image", inputs[1], inputs[2], inputs[3]], 
+                                             model.model.model_category, 
+                                             model_name_for_logging=str(log_name)))
 
         # coalesce all the ai results
         coalesce_inputs: List[str] = []
@@ -94,7 +119,10 @@ class DynamicAIManager:
                 coalesce_inputs.extend(categories)
             else:
                 coalesce_inputs.append(categories)
-        model_wrappers.append(ModelWrapper(self.model_manager.get_or_create_model("result_coalescer"), coalesce_inputs, outputs=outputs))
+        model_wrappers.append(ModelWrapper(self.model_manager.get_or_create_model("result_coalescer"), 
+                                         coalesce_inputs, 
+                                         outputs=outputs, 
+                                         model_name_for_logging="result_coalescer"))
 
         self.logger.debug("Finished creating dynamic Image AI models")
         return model_wrappers

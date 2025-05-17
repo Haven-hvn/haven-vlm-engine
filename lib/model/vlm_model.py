@@ -48,6 +48,7 @@ class OpenAICompatibleVLMClient:
         self.model_id: str = str(config["model_id"])
         self.max_new_tokens: int = int(config.get("max_new_tokens", 128))
         self.request_timeout: int = int(config.get("request_timeout", 70)) # seconds
+        self.vlm_detected_tag_confidence: float = float(config.get("vlm_detected_tag_confidence", 0.99))
         
         tag_list_path: Optional[str] = config.get("tag_list_path")
         self.tag_list: List[str]
@@ -171,31 +172,21 @@ class OpenAICompatibleVLMClient:
         return self._parse_simple_default(raw_reply)
 
     def _parse_simple_default(self, reply: str) -> Dict[str, float]:
-        """
-        Simple Default Scheme:
-          - Any tag listed by the model → confidence = 0.8
-          - All other tags → confidence = 0.0
-        """
-        tag_item: str # for dict comprehension, renamed to avoid conflict
-        if not isinstance(reply, str):
-            self.logger.warning(f"_parse_simple_default received non-string reply: {type(reply)}")
-            return {tag_item: 0.0 for tag_item in self.tag_list}
+        # Initialize all configured tags (from self.tag_list, which preserves original casing) with 0.0 confidence
+        found: Dict[str, float] = {tag: 0.0 for tag in self.tag_list}
+        
+        # Split the VLM's reply into individual tags and convert to lowercase for matching
+        parsed_vlm_tags: List[str] = [tag.strip().lower() for tag in reply.split(',') if tag.strip()]
 
-        # Check for common prefixes if any (though OpenAI API usually clean)
-        if ":" in reply:
-            parts: List[str] = reply.split(":", 1)
-            if len(parts) > 1 and parts[0].lower().strip() in ["assistant", "model", "ai", "bot", "response", "reply"]:
-                 reply = parts[1]
+        # For each tag in our configured list (self.tag_list preserves original casing)
+        for tag_config_original_case in self.tag_list:
+            # If the lowercase version of the configured tag is in the lowercase list of VLM-returned tags
+            if tag_config_original_case.lower() in parsed_vlm_tags:
+                # Use the original casing from self.tag_list as the key in the 'found' dictionary
+                found[tag_config_original_case] = self.vlm_detected_tag_confidence
         
-        # Split on commas and normalize
-        found: Dict[str, float] = {tag_item: 0.0 for tag_item in self.tag_list}
-        parsed_tags: List[str] = [t.strip().lower() for t in reply.split(",") if t.strip()]
-        
-        t_model: str
-        tag_config: str
-        for t_model in parsed_tags:
-            for tag_config in self.tag_list:
-                if tag_config.lower() == t_model:
-                    found[tag_config] = 0.8 # Default confidence
-                    break # Move to next model tag once matched
         return found
+
+    def _parse_score_per_line(self, reply: str) -> Dict[str, float]:
+        # Implementation of _parse_score_per_line method
+        pass

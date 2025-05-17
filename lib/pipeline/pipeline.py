@@ -6,6 +6,9 @@ from lib.pipeline.dynamic_ai_manager import DynamicAIManager
 from lib.pipeline.model_wrapper import ModelWrapper
 from typing import List, Dict, Any, Optional, Set, Union, Tuple
 from lib.model.vlm_ai_model import VLMAIModel
+import logging
+
+logger: logging.Logger = logging.getLogger("logger")
 
 class Pipeline:
     def __init__(self, configValues: Dict[str, Any], model_manager: ModelManager, dynamic_ai_manager: DynamicAIManager):
@@ -51,7 +54,7 @@ class Pipeline:
                 continue
             
             returned_model: Any = model_manager.get_or_create_model(modelName)
-            self.models.append(ModelWrapper(returned_model, model_inputs, model_outputs))
+            self.models.append(ModelWrapper(returned_model, model_inputs, model_outputs, model_name_for_logging=modelName))
 
         categories_set: Set[str] = set()
         wrapper_model: ModelWrapper
@@ -86,7 +89,16 @@ class Pipeline:
         current_model_wrapper: ModelWrapper
         for current_model_wrapper in self.models:
             if key in current_model_wrapper.inputs:
-                allOtherInputsPresent: bool = all(isinstance(inputName, str) and inputName in itemFuture.data for inputName in current_model_wrapper.inputs if inputName != key)
+                allOtherInputsPresent: bool = True
+
+                inputName: str
+                for inputName in current_model_wrapper.inputs:
+                    if inputName != key:
+                        is_present = (itemFuture.data is not None and inputName in itemFuture.data)
+                        if not is_present:
+                            allOtherInputsPresent = False
+                            break
+                
                 if allOtherInputsPresent:
                     await current_model_wrapper.model.add_to_queue(QueueItem(itemFuture, current_model_wrapper.inputs, current_model_wrapper.outputs))
 

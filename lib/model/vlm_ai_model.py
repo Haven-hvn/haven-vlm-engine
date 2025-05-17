@@ -113,6 +113,7 @@ class VLMAIModel(AIModel):
                 
                 curr_time: float = time.time()
                 scores: Dict[str, float] = self.vlm_model.analyze_frame(image_pil)
+                self.logger.debug(f"VLM Model ({self.model_identifier}) got scores: {scores} for frame.") # Log all scores
                 self.logger.debug(f"Processed image with VLM in {time.time() - curr_time}s")
                 
                 # Ensure output_names is a list
@@ -131,6 +132,7 @@ class VLMAIModel(AIModel):
                 tag_name: str
                 confidence: float
                 for tag_name, confidence in scores.items():
+                    self.logger.debug(f"VLM Model ({self.model_identifier}) raw score for tag '{tag_name}': {confidence}, Threshold: {threshold}") # Log individual score vs threshold
                     if confidence > threshold:
                         tag: Union[Tuple[str, float], str]
                         if return_confidence:

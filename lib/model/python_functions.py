@@ -71,48 +71,83 @@ async def vlm_frame_analyzer(data: List[QueueItem]) -> None:
             item_future.set_exception(e)
 
 async def result_coalescer(data: List[QueueItem]) -> None:
-    item: QueueItem
-    for item in data:
-        itemFuture: ItemFuture = item.item_future
+    item_q: QueueItem
+    for item_q in data:
+        itemFuture: ItemFuture = item_q.item_future
+        logger.debug(f"ResultCoalescer: Starting for ItemFuture id={id(itemFuture)}. Input names: {item_q.input_names}")
         result: Dict[str, Any] = {}
         input_name: str
-        for input_name in item.input_names:
-            if input_name in itemFuture: # Check if key exists
-                ai_result: Any = itemFuture[input_name]
+        for input_name in item_q.input_names:
+            logger.debug(f"ResultCoalescer: ItemFuture id={id(itemFuture)}, processing input_name: '{input_name}'")
+            # Robust check for key presence
+            if itemFuture.data is not None and input_name in itemFuture.data:
+                ai_result: Any = itemFuture[input_name] 
                 if not isinstance(ai_result, Skip):
-                    result[input_name] = ai_result # No, use itemFuture[input_name] to get the actual value
-        output_target = item.output_names[0] if isinstance(item.output_names, list) else item.output_names
+                    result[input_name] = ai_result
+            else:
+                logger.debug(f"ResultCoalescer: ItemFuture id={id(itemFuture)}, input_name: '{input_name}' NOT found in itemFuture.data or data is None.")
+        output_target = item_q.output_names[0] if isinstance(item_q.output_names, list) else item_q.output_names
+        logger.debug(f"ResultCoalescer: ItemFuture id={id(itemFuture)}, setting output '{output_target}' with keys: {list(result.keys())}")
         await itemFuture.set_data(output_target, result)
         
 async def result_finisher(data: List[QueueItem]) -> None:
     item: QueueItem
     for item in data:
         itemFuture: ItemFuture = item.item_future
-        # Ensure input_names[0] exists in itemFuture
+        # Attempt to get a frame identifier, e.g., if 'frame_index' was added to itemFuture.data
+        frame_identifier = itemFuture.data.get('frame_index', 'unknown_frame') 
+        logger.debug(f"ResultFinisher: Starting for frame {frame_identifier}. Expecting input: {item.input_names[0]}")
         if item.input_names[0] in itemFuture:
             future_results: Any = itemFuture[item.input_names[0]]
+            logger.debug(f"ResultFinisher: Input {item.input_names[0]} found for frame {frame_identifier}. Closing future.")
             itemFuture.close_future(future_results)
+            logger.debug(f"ResultFinisher: Future closed for frame {frame_identifier}.")
         else:
-            # Handle error: input not found
-            logger.error(f"Input {item.input_names[0]} not found in itemFuture for result_finisher")
+            logger.error(f"ResultFinisher: Input {item.input_names[0]} NOT FOUND in itemFuture for frame {frame_identifier}. Setting exception.")
             itemFuture.set_exception(KeyError(f"Input {item.input_names[0]} not found"))
 
 async def batch_awaiter(data: List[QueueItem]) -> None:
     item: QueueItem
     for item in data:
-        itemFuture: ItemFuture = item.item_future
-        if item.input_names[0] in itemFuture:
-            futures: List[asyncio.Future] = itemFuture[item.input_names[0]]
-            if isinstance(futures, list): # Ensure it's a list of futures
-                results: List[Any] = await asyncio.gather(*futures, return_exceptions=True)
+        itemFuture: ItemFuture = item.item_future # This is the main pipeline's ItemFuture
+        logger.debug(f"BatchAwaiter: Starting for ItemFuture: id={id(itemFuture)}. Expecting input: {item.input_names[0]}")
+        
+        input_key = item.input_names[0]
+        logger.debug(f"BatchAwaiter: Checking if key '{input_key}' is in ItemFuture id={id(itemFuture)}. Data keys: {list(itemFuture.data.keys()) if itemFuture.data is not None else 'Data is None'}")
+
+        if input_key in itemFuture: # itemFuture.data should not be None here
+            logger.debug(f"BatchAwaiter: Key '{input_key}' IS in ItemFuture id={id(itemFuture)}. About to call itemFuture['{input_key}'].")
+            child_futures_val: Any = itemFuture[input_key] # This calls ItemFuture.__getitem__
+            logger.debug(f"BatchAwaiter: itemFuture['{input_key}'] returned. Retrieved value type: {type(child_futures_val)}. Is list: {isinstance(child_futures_val, list)}")
+
+            if isinstance(child_futures_val, list):
+                child_futures: List[ItemFuture] = child_futures_val # Cast after check
+                logger.debug(f"BatchAwaiter: Received {len(child_futures)} child futures to await.")
+                
+                # Gather results. Note: asyncio.gather expects asyncio.Future or awaitables.
+                # ItemFuture itself should be awaitable.
+                results: List[Any] = await asyncio.gather(*child_futures, return_exceptions=True)
+                logger.debug(f"BatchAwaiter: asyncio.gather completed. Number of results: {len(results)}.")
+
+                # Log any exceptions returned by gather
+                exception_count = 0
+                for i, res in enumerate(results):
+                    if isinstance(res, Exception):
+                        logger.error(f"BatchAwaiter: Child future {i} (frame_index might be in res.item_future.data if custom exception) completed with exception: {res}", exc_info=res)
+                        exception_count += 1
+                if exception_count > 0:
+                    logger.error(f"BatchAwaiter: Total exceptions from child futures: {exception_count}")
+                
                 output_target = item.output_names[0] if isinstance(item.output_names, list) else item.output_names
+                logger.debug(f"BatchAwaiter: Setting output {output_target} with collected results.")
                 await itemFuture.set_data(output_target, results)
+                logger.debug(f"BatchAwaiter: Output set. Processing complete for this item.")
             else:
-                logger.error(f"Input for batch_awaiter ({item.input_names[0]}) is not a list of futures.")
-                itemFuture.set_exception(TypeError("Input for batch_awaiter must be a list of futures."))
+                logger.error(f"BatchAwaiter: Input for batch_awaiter ('{input_key}') is not a list. Actual type: {type(child_futures_val)}")
+                itemFuture.set_exception(TypeError(f"Input for batch_awaiter ('{input_key}') must be a list of futures."))
         else:
-            logger.error(f"Input {item.input_names[0]} not found in itemFuture for batch_awaiter")
-            itemFuture.set_exception(KeyError(f"Input {item.input_names[0]} not found"))
+            logger.error(f"BatchAwaiter: Input key '{input_key}' NOT FOUND in ItemFuture id={id(itemFuture)}. Data was: {itemFuture.data}")
+            itemFuture.set_exception(KeyError(f"Input {input_key} not found"))
 
 async def video_result_postprocessor(data: List[QueueItem]) -> None:
     item: QueueItem
@@ -132,10 +167,19 @@ async def video_result_postprocessor(data: List[QueueItem]) -> None:
             # It's safer not to delete from itemFuture.data directly unless managed carefully
             # del itemFuture.data["pipeline"] 
 
-            videoResult: Optional[AIVideoResult] = itemFuture.get(item.input_names[4]) # Use .get for safety
+            videoResult: Optional[AIVideoResult] = None
+            # Check if itemFuture.data is not None before trying to .get() from it
+            if itemFuture.data is not None:
+                videoResult = itemFuture.data.get(item.input_names[4]) # Use .data.get() for safety
+
             if videoResult is not None:
-                videoResult.add_server_result(result)
-            else:
+                if isinstance(videoResult, AIVideoResult): # Ensure it's the correct type
+                    videoResult.add_server_result(result)
+                else:
+                    # Log a warning or error if it's not the expected type, then create new
+                    logger.warning(f"Expected AIVideoResult for '{item.input_names[4]}' but got {type(videoResult)}. Creating new.")
+                    videoResult = AIVideoResult.from_server_result(result)
+            else: # videoResult was None from .data.get()
                 videoResult = AIVideoResult.from_server_result(result)
 
             toReturn: Dict[str, Any] = {"json_result": videoResult.to_json(), "video_tag_info": timeframe_processing.compute_video_tag_info(videoResult)}

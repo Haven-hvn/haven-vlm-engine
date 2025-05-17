@@ -78,56 +78,59 @@ class ModelProcessor():
         return False
 
     async def worker_process(self) -> None:
+        # Identify the model this processor is for, using a unique attribute if available
+        model_identifier = getattr(self.model, 'model_identifier', getattr(self.model, 'function_name', 'UnknownPythonFunc'))
         while True:
-            firstItem: QueueItem = await self.queue.get()
-            batch_data: List[QueueItem] = []
-            if (await self.batch_data_append_with_skips(batch_data, firstItem)):
-                self.queue.task_done() # task_done for the skipped firstItem
-                continue
+            try:
+                firstItem: QueueItem = await self.queue.get()
+                
+                batch_data: List[QueueItem] = []
+                if (await self.batch_data_append_with_skips(batch_data, firstItem)):
+                    self.queue.task_done() # task_done for the skipped firstItem
+                    continue
 
-            waitsSoFar: int = 0
-            # max_batch_waits can be -1 for indefinite wait, or 0 for no wait beyond first item
-            
-            # Condition for the loop: continue if batch is not full AND
-            # (we haven't exhausted waits OR we wait indefinitely)
-            while len(batch_data) < self.max_batch_size and \
-                  (self.max_batch_waits == -1 or waitsSoFar < self.max_batch_waits):
-                if not self.queue.empty():
-                    next_item: QueueItem = await self.queue.get()
-                    if await self.batch_data_append_with_skips(batch_data, next_item):
-                        self.queue.task_done() # task_done for the skipped next_item
-                    # If not skipped, it's added to batch_data, task_done will be called later
-                elif self.max_batch_waits != 0: # Only sleep if we are allowed to wait
-                    waitsSoFar += 1
-                    await asyncio.sleep(1) # Sleep for 1 second
-                else: # No items in queue and no more waits allowed (max_batch_waits is 0)
-                    break
-            
-            if batch_data: # Ensure batch_data is not empty
-                try:
-                    # worker_function_wrapper is part of the Model base class, should exist
-                    await self.model.worker_function_wrapper(batch_data)
-                finally:
-                    # Mark all items in the processed batch (or attempted batch) as done
-                    for _ in batch_data: # Iterate as many times as items were in batch_data
-                        self.queue.task_done()
-            else: # If firstItem was the only one and got skipped, it's already task_done.
-                  # If firstItem was not skipped but batch remains empty (should not happen with current logic)
-                  # ensure its task_done if it wasn't processed.
-                  # However, if batch_data is empty here, it means firstItem was skipped
-                  # and its task_done was called. If firstItem was not skipped and is the only one,
-                  # it should be in batch_data.
-                  # The case of firstItem being put in queue but not processed and batch_data being empty
-                  # seems unlikely unless batch_data_append_with_skips had an issue or firstItem was skipped.
-                  # If firstItem was NOT skipped and is the only one, it's in batch_data and handled above.
-                  # If firstItem IS skipped, its task_done is handled.
-                  # This 'else' path where batch_data is empty means firstItem was likely skipped.
-                  # If it was never added to queue (e.g. error before firstItem = await self.queue.get()),
-                  # that's a different issue.
-                  # Let's ensure the first item fetched is always marked done if not processed in a batch.
-                  # This is now handled because if firstItem is skipped, task_done is called.
-                  # If firstItem is not skipped, it goes into batch_data and is handled in the finally block.
-                  pass
+                waitsSoFar: int = 0
+                # max_batch_waits can be -1 for indefinite wait, or 0 for no wait beyond first item
+                
+                # Condition for the loop: continue if batch is not full AND
+                # (we haven't exhausted waits OR we wait indefinitely)
+                while len(batch_data) < self.max_batch_size and \
+                      (self.max_batch_waits == -1 or waitsSoFar < self.max_batch_waits):
+                    if not self.queue.empty():
+                        next_item: QueueItem = await self.queue.get()
+                        if await self.batch_data_append_with_skips(batch_data, next_item):
+                            self.queue.task_done() # task_done for the skipped next_item
+                        # If not skipped, it's added to batch_data, task_done will be called later
+                    elif self.max_batch_waits != 0: # Only sleep if we are allowed to wait
+                        waitsSoFar += 1
+                        await asyncio.sleep(1) # Sleep for 1 second
+                    else: # No items in queue and no more waits allowed (max_batch_waits is 0)
+                        break
+                
+                if batch_data: # Ensure batch_data is not empty
+                    try:
+                        # worker_function_wrapper is part of the Model base class, should exist
+                        await self.model.worker_function_wrapper(batch_data)
+                    except Exception as e:
+                        # Ensure futures are handled even on error
+                        item_in_batch: QueueItem
+                        for item_in_batch in batch_data:
+                            if not item_in_batch.item_future.done():
+                                try:
+                                    item_in_batch.item_future.set_exception(e)
+                                except Exception as fut_e:
+                                    logger.error(f"Exception setting exception on ItemFuture id={id(item_in_batch.item_future)}: {fut_e}")
+                    finally:
+                        # Mark all items in the processed batch (or attempted batch) as done
+                        for _ in batch_data: # Iterate as many times as items were in batch_data
+                            self.queue.task_done()
+                else:
+                      pass
+            except Exception as e:
+                self.failed_loading = True
+                # Use model_identifier in this log as well
+                logger.error(f"Failed to start workers for model '{model_identifier}': {e}", exc_info=True)
+                raise # Re-throw the exception to be caught by the caller
 
 
     async def start_workers(self) -> None:

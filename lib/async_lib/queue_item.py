@@ -1,5 +1,9 @@
 from typing import List, Union, Optional, Dict, Any, Callable, Awaitable, Generator
 import asyncio
+import logging
+
+# Use the globally configured logger if available, otherwise default for the module
+logger: logging.Logger = logging.getLogger("logger")
 
 class ItemFuture:
     def __init__(self, parent: Optional['ItemFuture'], event_handler: Callable[['ItemFuture', str], Awaitable[None]]):
@@ -26,10 +30,19 @@ class ItemFuture:
         if not self.future.done():
             self.future.set_exception(exception)
 
+    def __contains__(self, key: str) -> bool:
+        if self.data is None:
+            return False
+        is_present = key in self.data
+        return is_present
+
     def __getitem__(self, key: str) -> Any:
         if self.data is None:
             return None
-        return self.data.get(key)
+        
+        # Log before and after the actual .get() call
+        value = self.data.get(key)
+        return value
 
     def __await__(self) -> Generator[Any, None, Any]:
         yield from self.future.__await__()
