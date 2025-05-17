@@ -65,7 +65,7 @@ async def process_video(request: VideoPathList) -> VideoResult:
         try:
             future: asyncio.Future = await server_manager.get_request_future(data, pipeline_name)
             result_data_from_pipeline: Dict[str, Any] = await future
-            logger.info(f"Data received directly from AI pipeline (future): {result_data_from_pipeline}")
+            logger.debug(f"Data received directly from AI pipeline (future): {result_data_from_pipeline}")
         except Exception as e:
             logger.error(f"Error during AI processing for video {request.path}: {e}", exc_info=True)
             raise HTTPException(status_code=400, detail=f"AI processing failed: {str(e)}")
