@@ -76,7 +76,7 @@ def compute_video_timespans_OG(video_result: AIVideoResult) -> Dict[str, Dict[st
                         processed_timeframes.append(deepcopy(raw_timespan_obj))
             
             final_tag_timeframes: List[tag_models.TimeFrame] = [
-                tag_models.TimeFrame(start=tf.start, end=tf.end if hasattr(tf, 'end') and tf.end is not None else tf.start, totalConfidence=None) 
+                tag_models.TimeFrame(start=tf.start, end=(tf.end if hasattr(tf, 'end') and tf.end is not None else tf.start), totalConfidence=None) 
                 for tf in processed_timeframes 
                 if hasattr(tf, 'start') and 
                    ( (hasattr(tf, 'end') and tf.end is not None and (tf.end - tf.start >= tag_min_duration)) or 
@@ -146,7 +146,7 @@ def compute_video_timespans_clustering(
                     current_bucket = tag_models.TimeFrame(start=start_time, end=end_time, totalConfidence=confidence * duration_val)
                 else:
                     if start_time - current_bucket.end == frame_interval:
-                        current_bucket.merge(start_time, end_time, confidence, frame_interval)
+                        current_bucket.merge(math.floor(start_time), math.floor(end_time), confidence, frame_interval)
                     else:
                         initial_buckets.append(current_bucket)
                         current_bucket = tag_models.TimeFrame(start=start_time, end=end_time, totalConfidence=confidence * duration_val)
@@ -263,7 +263,7 @@ def compute_video_timespans_proportional_merge(video_result: AIVideoResult, prop
                     processed_tag_timeframes.append(deepcopy(raw_timespan_obj))
 
             final_tag_timeframes_prop: List[tag_models.TimeFrame] = [
-                tag_models.TimeFrame(start=tf.start, end=tf.end if tf.end is not None else tf.start, totalConfidence=None)
+                tag_models.TimeFrame(start=tf.start, end=(tf.end if tf.end is not None else tf.start), totalConfidence=None)
                 for tf in processed_tag_timeframes 
                 if ( (tf.end is not None and ((tf.end - tf.start) + frame_interval >= tag_min_duration)) or
                      ( (tf.end is None) and (frame_interval >= tag_min_duration) )

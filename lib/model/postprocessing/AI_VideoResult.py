@@ -1,7 +1,8 @@
 import gzip
 import logging
 from typing import Dict, List, Optional, Tuple, Set, Any, Union, TYPE_CHECKING
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, ConfigDict, ValidationInfo
+import math
 
 if TYPE_CHECKING:
     from lib.model.postprocessing.AI_VideoResultV0 import AIVideoResultV0
@@ -9,9 +10,30 @@ if TYPE_CHECKING:
 logger: logging.Logger = logging.getLogger("logger")
 
 class TagTimeFrame(BaseModel):
-    start: float
-    end: Optional[float] = None
+    model_config = ConfigDict(validate_assignment=True, extra='forbid')
+
+    start: int
+    end: Optional[int] = None
     confidence: Optional[float] = None
+
+    @field_validator('start', 'end', mode='before')
+    @classmethod
+    def _floor_and_convert_to_int(cls, v: Any, info: ValidationInfo) -> Optional[int]:
+        if v is None and info.field_name == 'end':
+            return None
+        if v is None:
+            raise ValueError(f"Field '{info.field_name}' received None but is not Optional or handled.")
+
+        if isinstance(v, int):
+            return v
+        if isinstance(v, float):
+            return int(math.floor(v))
+        try:
+            return int(math.floor(float(str(v))))
+        except (ValueError, TypeError) as e:
+            logger.error(f"TagTimeFrame validator: Could not convert '{v}' for '{info.field_name}' to int: {e}")
+            raise ValueError(f"Invalid value '{v}' for field '{info.field_name}', cannot convert to integer.") from e
+
     def __str__(self) -> str:
         return f"TagTimeFrame(start={self.start}, end={self.end}, confidence={self.confidence})"
 
@@ -20,7 +42,7 @@ class ModelInfo(BaseModel):
     threshold: float
     version: float
     ai_model_id: int
-    file_name: Optional[str]
+    file_name: Optional[str] = None
     
     def needs_reprocessed(self, 
                           new_frame_interval: float, 
@@ -199,12 +221,37 @@ class AIVideoResult(BaseModel):
                             last_time_frame: TagTimeFrame = currentCategoryDict[tag_name][-1]
 
                             if last_time_frame.end is None:
-                                if (frame_index - last_time_frame.start) == frame_interval and last_time_frame.confidence == confidence:
+                                if (frame_index - float(last_time_frame.start)) == frame_interval and last_time_frame.confidence == confidence:
                                     last_time_frame.end = frame_index
                                 else:
                                     currentCategoryDict[tag_name].append(TagTimeFrame(start=frame_index, end=None, confidence=confidence))
-                            elif last_time_frame.confidence == confidence and (frame_index - last_time_frame.end) == frame_interval:
+                            elif last_time_frame.confidence == confidence and (frame_index - float(last_time_frame.end)) == frame_interval:
                                 last_time_frame.end = frame_index
                             else:
                                 currentCategoryDict[tag_name].append(TagTimeFrame(start=frame_index, end=None, confidence=confidence))
         return toReturn
+
+def save_gzip_json(data: 'AIVideoResult', file_path: str) -> bool:
+    try:
+        json_str = data.to_json()
+        gzipped_json = gzip.compress(json_str.encode('utf-8'))
+        with open(file_path, 'wb') as f:
+            f.write(gzipped_json)
+        return True
+    except Exception as e:
+        logger.error(f"Error saving gzipped JSON to {file_path}: {e}", exc_info=True)
+        return False
+
+def load_gzip_json(file_path: str) -> Optional['AIVideoResult']:
+    try:
+        with open(file_path, 'rb') as f:
+            gzipped_json = f.read()
+        json_str = gzip.decompress(gzipped_json).decode('utf-8')
+        data = json.loads(json_str)
+        return AIVideoResult.from_client_json(data)[0]
+    except FileNotFoundError:
+        logger.debug(f"File not found: {file_path}")
+        return None
+    except Exception as e:
+        logger.error(f"Error loading gzipped JSON from {file_path}: {e}", exc_info=True)
+        return None
