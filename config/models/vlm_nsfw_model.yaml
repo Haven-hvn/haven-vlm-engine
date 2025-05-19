@@ -5,7 +5,7 @@ instance_count: 1
 model_threshold: 0.5
 model_return_tags: true
 model_return_confidence: true
-model_category: ["nsfw"]
+model_category: ["actiondetection"]
 model_version: "1.0"
 model_identifier: 93848
 model_image_size: 512
