@@ -4,7 +4,6 @@ from lib.async_lib.async_processing import ItemFuture, QueueItem
 from lib.model.model import Model
 from lib.model.preprocessing_python.image_preprocessing import preprocess_video
 from typing import Dict, Any, List, Optional, Union, Tuple
-from .performance_metrics import PerformanceTracker
 
 class VideoPreprocessorModel(Model):
     def __init__(self, model_config: Dict[str, Any]):
@@ -16,7 +15,6 @@ class VideoPreprocessorModel(Model):
         self.use_half_precision: bool = model_config.get("use_half_precision", True)
         self.normalization_config: Union[int, Dict[str, List[float]]] = model_config.get("normalization_config", 1)
         self.process_for_vlm: bool = False
-        self.performance_tracker = PerformanceTracker()
     
     def set_vlm_pipeline_mode(self, mode: bool) -> None:
         self.process_for_vlm = mode
@@ -27,10 +25,8 @@ class VideoPreprocessorModel(Model):
         for item in queue_items:
             itemFuture: ItemFuture = item.item_future
             try:
+                totalTime: float = 0.0
                 video_path: str = itemFuture[item.input_names[0]]
-                self.performance_tracker.start_processing(video_path)
-                self.performance_tracker.start_preprocessing()
-                
                 use_timestamps: bool = itemFuture[item.input_names[1]]
                 frame_interval_override: Optional[float] = itemFuture[item.input_names[2]]
                 current_frame_interval: float = frame_interval_override if frame_interval_override is not None else self.frame_interval
@@ -38,13 +34,16 @@ class VideoPreprocessorModel(Model):
                 
                 children: List[ItemFuture] = []
                 processed_frames_count: int = 0
+                oldTime: float = time.time()
                 norm_config_to_use: Union[int, Dict[str, List[float]]] = self.normalization_config
                 
                 frame_index: int
                 frame_tensor: Any
                 for frame_index, frame_tensor in preprocess_video(video_path, current_frame_interval, self.image_size, self.use_half_precision, self.device, use_timestamps, vr_video=vr_video, norm_config_idx=norm_config_to_use, process_for_vlm=self.process_for_vlm):
                     processed_frames_count += 1
-                    self.performance_tracker.increment_frames()
+                    newTime: float = time.time()
+                    totalTime += newTime - oldTime
+                    oldTime = newTime
                     
                     future_data_payload: Dict[str, Any] = {
                         item.output_names[1]: frame_tensor, 
@@ -56,15 +55,8 @@ class VideoPreprocessorModel(Model):
                     result_future: ItemFuture = await ItemFuture.create(item, future_data_payload, item.item_future.handler)
                     children.append(result_future)
                 
-                self.performance_tracker.end_preprocessing()
-                
                 if processed_frames_count > 0:
-                    metrics = self.performance_tracker.get_metrics()
-                    self.logger.info(
-                        f"Preprocessed {processed_frames_count} frames in {metrics.preprocessing_time:.2f} seconds "
-                        f"at an average of {metrics.preprocessing_fps:.2f} FPS. "
-                        f"Total processing time: {metrics.total_processing_time:.2f} seconds."
-                    )
+                    self.logger.info(f"Preprocessed {processed_frames_count} frames in {totalTime:.2f} seconds at an average of {totalTime/processed_frames_count:.3f} seconds per frame.")
                 else:
                     self.logger.info(f"No frames preprocessed for {video_path}.")
                 
