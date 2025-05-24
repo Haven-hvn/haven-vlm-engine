@@ -9,6 +9,7 @@ from lib.model.ai_model import AIModel
 from lib.model.vlm_model import OpenAICompatibleVLMClient
 from typing import Dict, Any, List, Optional, Union, Tuple # Added imports
 from lib.async_lib.async_processing import ItemFuture, QueueItem # Added QueueItem
+from .performance_metrics import PerformanceTracker
 
 class VLMAIModel(AIModel):
     def __init__(self, configValues: Dict[str, Any]):
@@ -43,6 +44,7 @@ class VLMAIModel(AIModel):
 
         self.logger: logging.Logger = logging.getLogger("logger")
         self.vlm_model: Optional[OpenAICompatibleVLMClient] = None
+        self.performance_tracker = PerformanceTracker()
         
         # localdevice might not be needed if all VLM work is remote.
         # For now, kept for the tensor to PIL conversion logic.
@@ -73,6 +75,8 @@ class VLMAIModel(AIModel):
                     confidence_val: Optional[bool] = itemFuture[item.input_names[2]]
                     if confidence_val is not None:
                         return_confidence = confidence_val
+                
+                self.performance_tracker.start_model_inference()
                 
                 image_np: np.ndarray
                 if hasattr(image_tensor, 'cpu') and hasattr(image_tensor, 'numpy'): # Check if it's a tensor
@@ -165,6 +169,14 @@ class VLMAIModel(AIModel):
             self.logger.info(f"Processed {len(data)} items with VLM AI model {self.model_identifier}")
             # the length of data is always 1
                     
+            self.performance_tracker.increment_frames()
+                
+            self.performance_tracker.end_model_inference()
+            metrics = self.performance_tracker.get_metrics()
+            self.logger.info(
+                f"Processed {metrics.total_frames} frames with VLM in {metrics.model_inference_time:.2f} seconds "
+                f"at an average of {metrics.model_inference_fps:.2f} FPS."
+            )
                 
         except Exception as e:
             self.logger.error(f"Error in VLM AI model worker_function: {e}")
