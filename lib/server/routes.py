@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import time
+import uuid
 from fastapi import HTTPException
 from lib.model.postprocessing import tag_models, timeframe_processing
 from lib.model.postprocessing.AI_VideoResult import AIVideoResult
@@ -35,8 +37,10 @@ async def process_images(request: ImagePathList) -> ImageResult:
 
 @app.post("/process_video/")
 async def process_video(request: VideoPathList) -> VideoResult:
+    request_id: str = str(uuid.uuid4())
+    pipeline_start_time: float = time.time()
     try:
-        logger.info(f"Processing video at path: {request.path}")
+        logger.info(f"[Request {request_id}] Processing video at path: {request.path}")
         pipeline_name: str = request.pipeline_name or server_manager.default_video_pipeline
         
         video_result: Optional[AIVideoResult]
@@ -169,6 +173,9 @@ async def process_video(request: VideoPathList) -> VideoResult:
         logger.error(f"Error processing video: {e}")
         logger.debug("Stack trace:", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        total_time: float = time.time() - pipeline_start_time
+        logger.info(f"[Request {request_id}] Pipeline Complete - Total Time: {total_time:.2f}s")
     
 @app.post("/optimize_timeframe_settings/")
 async def optimize_timeframe_settings(request: OptimizeMarkerSettings) -> None:
