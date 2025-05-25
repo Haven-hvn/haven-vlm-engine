@@ -56,9 +56,9 @@ class VideoPreprocessorModel(Model):
                     children.append(result_future)
                 
                 if processed_frames_count > 0:
-                    self.logger.info(f"Preprocessed {processed_frames_count} frames in {totalTime:.2f} seconds at an average of {totalTime/processed_frames_count:.3f} seconds per frame.")
+                    self.logger.debug(f"Preprocessed {processed_frames_count} frames in {totalTime:.2f} seconds at an average of {totalTime/processed_frames_count:.3f} seconds per frame.")
                 else:
-                    self.logger.info(f"No frames preprocessed for {video_path}.")
+                    self.logger.debug(f"No frames preprocessed for {video_path}.")
                 
                 await itemFuture.set_data(item.output_names[0], children)
             except FileNotFoundError as fnf_error:

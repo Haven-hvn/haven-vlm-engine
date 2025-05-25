@@ -1,4 +1,5 @@
-import decord
+import sys
+import platform
 import torch
 from torchvision.transforms import v2 as transforms
 from torchvision.transforms.functional import InterpolationMode
@@ -8,7 +9,15 @@ from typing import List, Tuple, Dict, Any, Optional, Union, Iterator
 import logging
 from PIL import Image as PILImage
 
-decord.bridge.set_bridge('torch')
+# Platform-specific imports
+# Check for macOS ARM (Apple Silicon)
+is_macos_arm = sys.platform == 'darwin' and platform.machine() == 'arm64'
+
+if is_macos_arm:
+    import av
+else:
+    import decord
+    decord.bridge.set_bridge('torch')
 
 def custom_round(number: float) -> int:
     if number - int(number) >= 0.5:
@@ -50,15 +59,32 @@ def get_video_duration_torchvision(video_path: str) -> float:
 
 def get_video_duration_decord(video_path: str) -> float:
     try:
-        vr: decord.VideoReader = decord.VideoReader(video_path, ctx=decord.cpu(0))
-        num_frames: int = len(vr)
-        frame_rate: float = vr.get_avg_fps()
-        if frame_rate == 0: return 0.0
-        duration: float = num_frames / frame_rate
-        del vr
-        return duration
-    except RuntimeError as e:
-        logging.getLogger("logger").error(f"Decord could not read video {video_path}: {e}")
+        if is_macos_arm:
+            container = av.open(video_path)
+            if not container.streams.video:
+                return 0.0
+            stream = container.streams.video[0]
+            if stream.duration and stream.time_base:
+                duration = float(stream.duration * stream.time_base)
+            else:
+                # Fallback: calculate from frame count and fps
+                fps = stream.average_rate
+                if fps and stream.frames:
+                    duration = float(stream.frames / float(fps))
+                else:
+                    duration = 0.0
+            container.close()
+            return duration
+        else:
+            vr: decord.VideoReader = decord.VideoReader(video_path, ctx=decord.cpu(0))
+            num_frames: int = len(vr)
+            frame_rate: float = vr.get_avg_fps()
+            if frame_rate == 0: return 0.0
+            duration: float = num_frames / frame_rate
+            del vr
+            return duration
+    except Exception as e:
+        logging.getLogger("logger").error(f"Error reading video {video_path}: {e}")
         return 0.0
 
 def get_frame_transforms(use_half_precision: bool, mean: torch.Tensor, std: torch.Tensor, vr_video: bool, img_size: Union[int, Tuple[int, int]]) -> transforms.Compose:
@@ -153,85 +179,149 @@ def preprocess_video(video_path: str, frame_interval_sec: float = 0.5, img_size:
     actual_device: torch.device = torch.device(device_str) if device_str else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger = logging.getLogger("logger") # Use a logger instance
 
-    try:
-        # decord.VideoReader by default gives frames that can be converted via .asnumpy()
-        vr = decord.VideoReader(video_path, ctx=decord.cpu(0))
-    except RuntimeError as e:
-        logger.error(f"Decord failed to open video {video_path}: {e}")
-        return
-        
-    fps: float = vr.get_avg_fps()
-    if fps == 0:
-        logger.warning(f"Video {video_path} has FPS of 0. Cannot process.")
-        if 'vr' in locals(): del vr # Ensure vr is deleted if initialized
-        return
+    if is_macos_arm:
+        # PyAV implementation for macOS ARM
+        try:
+            container = av.open(video_path)
+            stream = container.streams.video[0]
+            fps = float(stream.average_rate)
+            if fps == 0:
+                logger.warning(f"Video {video_path} has FPS of 0. Cannot process.")
+                container.close()
+                return
+            
+            frames_to_skip = custom_round(fps * frame_interval_sec)
+            if frames_to_skip < 1: frames_to_skip = 1
+            
+            # Decode frames
+            frame_count = 0
+            for frame in container.decode(stream):
+                if frame_count % frames_to_skip == 0:
+                    # Convert PyAV frame to torch tensor
+                    # PyAV frame.to_ndarray() returns HWC numpy array
+                    frame_np = frame.to_ndarray(format='rgb24')
+                    frame_tensor = torch.from_numpy(frame_np).to(actual_device)
+                    
+                    if process_for_vlm:
+                        # Crop black bars
+                        frame_tensor = crop_black_bars_lr(frame_tensor)
+                        
+                        if not torch.is_floating_point(frame_tensor):
+                            frame_tensor = frame_tensor.float()
+                        
+                        if use_half_precision:
+                            frame_tensor = frame_tensor.half()
+                        
+                        if vr_video:
+                            frame_tensor = vr_permute(frame_tensor)
+                        
+                        transformed_frame = frame_tensor
+                        frame_identifier = frame_count / fps if use_timestamps else frame_count
+                        yield (frame_identifier, transformed_frame)
+                    else:
+                        # Standard processing path
+                        mean, std = get_normalization_config(norm_config_idx, actual_device)
+                        frame_transforms_comp = get_frame_transforms(use_half_precision, mean, std, vr_video, img_size)
+                        
+                        if vr_video:
+                            frame_tensor = vr_permute(frame_tensor)
+                        
+                        # Permute HWC to CHW for standard torchvision transforms
+                        if frame_tensor.ndim == 3:
+                            frame_tensor = frame_tensor.permute(2, 0, 1)
+                        
+                        transformed_frame = frame_transforms_comp(frame_tensor)
+                        frame_identifier = frame_count / fps if use_timestamps else frame_count
+                        yield (frame_identifier, transformed_frame)
+                
+                frame_count += 1
+            
+            container.close()
+            
+        except Exception as e:
+            logger.error(f"PyAV failed to process video {video_path}: {e}")
+            return
+    else:
+        # Decord implementation for other platforms
+        try:
+            # decord.VideoReader by default gives frames that can be converted via .asnumpy()
+            vr = decord.VideoReader(video_path, ctx=decord.cpu(0))
+        except RuntimeError as e:
+            logger.error(f"Decord failed to open video {video_path}: {e}")
+            return
+            
+        fps: float = vr.get_avg_fps()
+        if fps == 0:
+            logger.warning(f"Video {video_path} has FPS of 0. Cannot process.")
+            if 'vr' in locals(): del vr # Ensure vr is deleted if initialized
+            return
 
-    # Assuming custom_round is defined elsewhere in the file or imported
-    frames_to_skip: int = custom_round(fps * frame_interval_sec) 
-    if frames_to_skip < 1: frames_to_skip = 1
+        # Assuming custom_round is defined elsewhere in the file or imported
+        frames_to_skip: int = custom_round(fps * frame_interval_sec) 
+        if frames_to_skip < 1: frames_to_skip = 1
 
-    if process_for_vlm:
-        for i in range(0, len(vr), frames_to_skip):
-            try:
-                # Load frame to CPU first
-                frame_cpu = vr[i] 
-            except RuntimeError as e_read_frame:
-                logger.warning(f"Could not read frame {i} from {video_path}: {e_read_frame}")
-                continue
-            
-            # Crop black bars on CPU
-            # crop_black_bars_lr will return a clone if cropped, or original if not.
-            frame_cpu = crop_black_bars_lr(frame_cpu)
+        if process_for_vlm:
+            for i in range(0, len(vr), frames_to_skip):
+                try:
+                    # Load frame to CPU first
+                    frame_cpu = vr[i] 
+                except RuntimeError as e_read_frame:
+                    logger.warning(f"Could not read frame {i} from {video_path}: {e_read_frame}")
+                    continue
+                
+                # Crop black bars on CPU
+                # crop_black_bars_lr will return a clone if cropped, or original if not.
+                frame_cpu = crop_black_bars_lr(frame_cpu)
 
-            # Move (potentially smaller) frame to target device
-            frame = frame_cpu.to(actual_device)
-            
-            if not torch.is_floating_point(frame): # If uint8 on device (after potential crop)
-                frame = frame.float() # Convert to float, but keep original range (e.g., 0-255)
-            # else: frame is already float, assume its range is what VLM expects
-            
-            if use_half_precision:
-                frame = frame.half()
-            
-            if vr_video: 
-                # Assuming vr_permute is defined elsewhere and handles HWC input, returning HWC
-                frame = vr_permute(frame) 
-            
-            # VLM receives HWC, RGB, float/half, [0,1] scaled tensor (or original range if not scaled before)
-            transformed_frame = frame
-            
-            frame_identifier: Union[int, float] = i / fps if use_timestamps else i
-            yield (frame_identifier, transformed_frame)
-    else: # Standard processing path
-        # Assuming get_normalization_config and get_frame_transforms are defined elsewhere
-        mean, std = get_normalization_config(norm_config_idx, actual_device)
-        # get_frame_transforms will include ToDtype, Resize, Normalize.
-        # These transforms (esp. Normalize) expect CHW tensors.
-        frame_transforms_comp = get_frame_transforms(use_half_precision, mean, std, vr_video, img_size)
+                # Move (potentially smaller) frame to target device
+                frame = frame_cpu.to(actual_device)
+                
+                if not torch.is_floating_point(frame): # If uint8 on device (after potential crop)
+                    frame = frame.float() # Convert to float, but keep original range (e.g., 0-255)
+                # else: frame is already float, assume its range is what VLM expects
+                
+                if use_half_precision:
+                    frame = frame.half()
+                
+                if vr_video: 
+                    # Assuming vr_permute is defined elsewhere and handles HWC input, returning HWC
+                    frame = vr_permute(frame) 
+                
+                # VLM receives HWC, RGB, float/half, [0,1] scaled tensor (or original range if not scaled before)
+                transformed_frame = frame
+                
+                frame_identifier: Union[int, float] = i / fps if use_timestamps else i
+                yield (frame_identifier, transformed_frame)
+        else: # Standard processing path
+            # Assuming get_normalization_config and get_frame_transforms are defined elsewhere
+            mean, std = get_normalization_config(norm_config_idx, actual_device)
+            # get_frame_transforms will include ToDtype, Resize, Normalize.
+            # These transforms (esp. Normalize) expect CHW tensors.
+            frame_transforms_comp = get_frame_transforms(use_half_precision, mean, std, vr_video, img_size)
 
-        for i in range(0, len(vr), frames_to_skip):
-            try:
-                # vr[i] directly returns a torch.Tensor
-                frame = vr[i].to(actual_device) # HWC, RGB, (likely) uint8 tensor on device
-            except RuntimeError as e_read_frame:
-                logger.warning(f"Could not read frame {i} from {video_path}: {e_read_frame}")
-                continue
+            for i in range(0, len(vr), frames_to_skip):
+                try:
+                    # vr[i] directly returns a torch.Tensor
+                    frame = vr[i].to(actual_device) # HWC, RGB, (likely) uint8 tensor on device
+                except RuntimeError as e_read_frame:
+                    logger.warning(f"Could not read frame {i} from {video_path}: {e_read_frame}")
+                    continue
 
-            if vr_video:
-                # Assuming vr_permute returns HWC, or format suitable for permute(2,0,1) if needed
-                frame = vr_permute(frame)
+                if vr_video:
+                    # Assuming vr_permute returns HWC, or format suitable for permute(2,0,1) if needed
+                    frame = vr_permute(frame)
 
-            # Permute HWC to CHW for standard torchvision transforms
-            if frame.ndim == 3: # Ensure it's an image tensor (H, W, C)
-                 frame = frame.permute(2, 0, 1) # Convert to (C, H, W)
-            # else: frame might not be a 3D tensor, or vr_permute changed it. Let transforms handle or error.
+                # Permute HWC to CHW for standard torchvision transforms
+                if frame.ndim == 3: # Ensure it's an image tensor (H, W, C)
+                     frame = frame.permute(2, 0, 1) # Convert to (C, H, W)
+                # else: frame might not be a 3D tensor, or vr_permute changed it. Let transforms handle or error.
 
-            transformed_frame = frame_transforms_comp(frame) 
-            
-            frame_identifier: Union[int, float] = i / fps if use_timestamps else i
-            yield (frame_identifier, transformed_frame)
-            
-    if 'vr' in locals(): del vr
+                transformed_frame = frame_transforms_comp(frame) 
+                
+                frame_identifier: Union[int, float] = i / fps if use_timestamps else i
+                yield (frame_identifier, transformed_frame)
+                
+        if 'vr' in locals(): del vr
 
 def crop_black_bars_lr(frame: torch.Tensor, black_threshold: float = 10.0, column_black_pixel_fraction_threshold: float = 0.95) -> torch.Tensor:
     """Crops vertical black bars from the left and right of an HWC image tensor."""
@@ -287,4 +377,3 @@ def crop_black_bars_lr(frame: torch.Tensor, black_threshold: float = 10.0, colum
     cropped_frame = frame[:, x_start:x_end, :]
     logger.debug(f"Cropped frame from W={W} to W'={cropped_frame.shape[1]} (x_start={x_start}, x_end={x_end})")
     return cropped_frame.clone() # Clone the cropped frame to ensure it's a new tensor
-    

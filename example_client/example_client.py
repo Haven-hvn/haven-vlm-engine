@@ -10,7 +10,7 @@ class VideoResult(BaseModel):
 class ImageResult(BaseModel):
     result: Any
 
-API_BASE_URL = 'http://localhost:8000'
+API_BASE_URL = 'http://localhost:7046'
 
 async def call_api_async(session, endpoint, payload):
     url = f'{API_BASE_URL}/{endpoint}'
@@ -30,7 +30,7 @@ async def process_videos_async(video_paths):
 
 def main():
     # image_paths = ['image_path1', 'image_path2', 'invalidpath']
-    video_path = '/home/user/haven-vlm-engine/sample.m4v'
+    video_path = '/sample/sample1.mp4'
 
     # image_results = ImageResult(**asyncio.run(process_images_async(image_paths)))
     video_results = VideoResult(**asyncio.run(process_videos_async(video_path)))
